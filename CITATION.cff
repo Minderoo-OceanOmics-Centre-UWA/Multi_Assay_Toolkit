@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Dissanayaka"
+    given-names: "Anushka"
+    affiliation: "Minderoo OceanOmics Centre at UWA, The University of Western Australia"
+    # orcid: "https://orcid.org/0009-0005-0565-2328"
+title: "FAIRe2OBIS: convert multi-assay FAIRe eDNA data into an OBIS-ready Darwin Core Archive"
+version: 1.0.0
+date-released: 2026-10-11
+url: "https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis"
+repository-code: "https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis"
+license: MIT
+keywords:
+  - eDNA
+  - OBIS
+  - Darwin Core
+  - R
+  - Shiny
