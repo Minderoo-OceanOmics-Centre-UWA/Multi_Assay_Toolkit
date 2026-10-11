@@ -1,8 +1,8 @@
-# MAT: Multi-Assay Toolkit
+# Multi-Assay Toolkit (MAT)
 
 **An open-source tool that turns FAIRe-formatted eDNA metabarcoding data into a Darwin Core Archive, with any number of assays published together as one dataset.**
 
-MAT (Multi-Assay Toolkit) reads [FAIRe](https://fair-edna.github.io/) spreadsheets and writes a standards-compliant [Darwin Core Archive](https://dwc.tdwg.org/text/) (DwC-A), ready to publish through an [IPT](https://www.gbif.org/ipt) to [OBIS](https://obis.org/) or [GBIF](https://www.gbif.org/). It comes as a guided web app (R Shiny) and as plain R scripts. It is free to use, host and adapt under the MIT licence.
+The Multi-Assay Toolkit (MAT) reads [FAIRe](https://fair-edna.github.io/) spreadsheets and writes a standards-compliant [Darwin Core Archive](https://dwc.tdwg.org/text/) (DwC-A), ready to publish through an [IPT](https://www.gbif.org/ipt) to [OBIS](https://obis.org/) or [GBIF](https://www.gbif.org/). It comes as a guided web app (R Shiny) and as plain R scripts. It is free to use, host and adapt under the MIT licence.
 
 ## Why this exists
 
@@ -310,7 +310,7 @@ How precisely each detection could be identified is a separate question. Some AS
 
 If you use MAT, please cite it. GitHub's "Cite this repository" button reads [CITATION.cff](CITATION.cff):
 
-> Dissanayaka, A. (2026). *MAT (Multi-Assay Toolkit): convert multi-assay FAIRe eDNA data into an OBIS-ready Darwin Core Archive* (v1.0.0). Minderoo OceanOmics Centre at UWA. https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis
+> Dissanayaka, A. (2026). *Multi-Assay Toolkit (MAT): convert multi-assay FAIRe eDNA data into an OBIS-ready Darwin Core Archive* (v1.0.0). Minderoo OceanOmics Centre at UWA. https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis
 
 ## Contributing
 

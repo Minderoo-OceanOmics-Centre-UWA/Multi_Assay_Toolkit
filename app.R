@@ -1,6 +1,6 @@
 ### app.R
 #
-# MAT - interactive web app.
+# Multi-Assay Toolkit (MAT) - interactive web app.
 #
 # Wraps the same R/*.R functions the CLI pipeline (scripts/01-05) uses,
 # in a guided, validated workflow instead of hand-editing config.R and
@@ -518,7 +518,7 @@ ui <- page_fluid(
       div(class = "header-bubble", style = "width:40px; height:40px; bottom:-10px; left:38%;"),
 
       div(class = "brand-mark", HTML('
-        <svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MAT logo">
+        <svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Multi-Assay Toolkit (MAT) logo">
           <defs>
             <linearGradient id="f2oLogoGrad" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stop-color="#2a78d6"/>
@@ -535,7 +535,7 @@ ui <- page_fluid(
         </svg>
       ')),
       div(
-        h1("MAT", span(style = "font-weight:400; font-size:0.95rem; opacity:0.85; margin-left:8px;", "Multi-Assay Toolkit")),
+        h1("Multi-Assay Toolkit (MAT)"),
         p("Convert FAIRe eDNA metabarcoding data into an OBIS-ready Darwin Core Archive")
       ),
       div(class = "header-spacer"),
@@ -675,7 +675,7 @@ ui <- page_fluid(
                  target = "_blank", rel = "noopener noreferrer", "Minderoo OceanOmics Centre at UWA"),
           span(class = "footer-sep", "|"),
           tags$a(href = "https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis",
-                 target = "_blank", rel = "noopener noreferrer", "MAT on GitHub")
+                 target = "_blank", rel = "noopener noreferrer", "Multi-Assay Toolkit (MAT) on GitHub")
       ),
       div(class = "footer-copyright",
           paste0("© ", format(Sys.Date(), "%Y"), " Minderoo OceanOmics Centre at UWA. All rights reserved."))

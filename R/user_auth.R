@@ -228,14 +228,14 @@ smtp_configured <- function() {
 
 send_code_email <- function(to, code, purpose = c("signup", "reset")) {
   purpose <- match.arg(purpose)
-  subject <- if (purpose == "signup") "MAT - verify your email" else "MAT - reset your password"
+  subject <- if (purpose == "signup") "Multi-Assay Toolkit (MAT) - verify your email" else "Multi-Assay Toolkit (MAT) - reset your password"
   action  <- if (purpose == "signup") "finish creating your account" else "reset your password"
   msg <- emayili::envelope() |>
     emayili::from(Sys.getenv("SMTP_USER")) |>
     emayili::to(to) |>
     emayili::subject(subject) |>
     emayili::text(paste0(
-      "Your MAT verification code is: ", code, "\n\n",
+      "Your Multi-Assay Toolkit (MAT) verification code is: ", code, "\n\n",
       "Enter this code in the app to ", action, ". ",
       "It expires in ", CODE_TTL_MINS, " minutes.\n\n",
       "If you didn't request this, you can ignore this email."
@@ -254,9 +254,9 @@ send_login_warning_email <- function(to) {
   msg <- emayili::envelope() |>
     emayili::from(Sys.getenv("SMTP_USER")) |>
     emayili::to(to) |>
-    emayili::subject("MAT - repeated failed login attempts") |>
+    emayili::subject("Multi-Assay Toolkit (MAT) - repeated failed login attempts") |>
     emayili::text(paste0(
-      "Someone has tried to log in to your MAT account with the wrong password, ",
+      "Someone has tried to log in to your Multi-Assay Toolkit (MAT) account with the wrong password, ",
       "more than once.\n\n",
       "If this was you and you've forgotten your password, use \"Forgot password\" on the login screen to reset it.\n\n",
       "If this wasn't you, reset your password as a precaution.\n\n",
