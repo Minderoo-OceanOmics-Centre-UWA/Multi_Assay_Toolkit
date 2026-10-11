@@ -1,8 +1,8 @@
-# FAIRe2OBIS
+# MAT: Multi-Assay Toolkit
 
 **An open-source tool that turns FAIRe-formatted eDNA metabarcoding data into a Darwin Core Archive, with any number of assays published together as one dataset.**
 
-FAIRe2OBIS reads [FAIRe](https://fair-edna.github.io/) spreadsheets and writes a standards-compliant [Darwin Core Archive](https://dwc.tdwg.org/text/) (DwC-A), ready to publish through an [IPT](https://www.gbif.org/ipt) to [OBIS](https://obis.org/) or [GBIF](https://www.gbif.org/). It comes as a guided web app (R Shiny) and as plain R scripts. It is free to use, host and adapt under the MIT licence.
+MAT (Multi-Assay Toolkit) reads [FAIRe](https://fair-edna.github.io/) spreadsheets and writes a standards-compliant [Darwin Core Archive](https://dwc.tdwg.org/text/) (DwC-A), ready to publish through an [IPT](https://www.gbif.org/ipt) to [OBIS](https://obis.org/) or [GBIF](https://www.gbif.org/). It comes as a guided web app (R Shiny) and as plain R scripts. It is free to use, host and adapt under the MIT licence.
 
 ## Why this exists
 
@@ -10,7 +10,7 @@ eDNA metabarcoding projects often collect one set of physical samples (water, se
 
 GBIF's [Metabarcoding Data Toolkit (MDT)](https://mdt.gbif.org/) is the most widely used tool for publishing metabarcoding data, and it works well for a single assay. It is built around an Occurrence core, where **one dataset = one assay**. Its user guide says: *"Mixed datasets (e.g., different primer sets used for the same set of samples) should be published separately."* A project with three assays becomes three unrelated datasets, each repeating the same sample metadata.
 
-FAIRe2OBIS builds the archive around an **Event core** instead, following the [OBIS-ENV-DATA](https://manual.obis.org/dna_data.html) pattern:
+MAT builds the archive around an **Event core** instead, following the [OBIS-ENV-DATA](https://manual.obis.org/dna_data.html) pattern:
 
 - **One Event core.** Each physical sample is written once.
 - **One Occurrence extension per assay.** The detections (ASVs) from each primer set, linked to the Event core by `eventID`.
@@ -33,7 +33,7 @@ flowchart TD
 
 The result is one dataset that says "these samples were taken once, and N assays were run on them". No sample metadata is repeated.
 
-| | MDT | FAIRe2OBIS |
+| | MDT | MAT |
 |---|---|---|
 | Core type | Occurrence | Event |
 | Assays per dataset | One | **Any number** (one, two, three or more) |
@@ -308,9 +308,9 @@ How precisely each detection could be identified is a separate question. Some AS
 
 ## Citation
 
-If you use FAIRe2OBIS, please cite it. GitHub's "Cite this repository" button reads [CITATION.cff](CITATION.cff):
+If you use MAT, please cite it. GitHub's "Cite this repository" button reads [CITATION.cff](CITATION.cff):
 
-> Dissanayaka, A. (2026). *FAIRe2OBIS: convert multi-assay FAIRe eDNA data into an OBIS-ready Darwin Core Archive* (v1.0.0). Minderoo OceanOmics Centre at UWA. https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis
+> Dissanayaka, A. (2026). *MAT (Multi-Assay Toolkit): convert multi-assay FAIRe eDNA data into an OBIS-ready Darwin Core Archive* (v1.0.0). Minderoo OceanOmics Centre at UWA. https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis
 
 ## Contributing
 

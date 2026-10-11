@@ -22,7 +22,7 @@ EML_FIELD_DEFS <- list(
   list(key = "title",             label = "Dataset title",                     type = "text"),
   list(key = "abstract",          label = "Abstract",                          type = "textarea", notes = "One paragraph per line"),
   list(key = "keywords",          label = "Keywords",                         type = "text",     notes = "Comma-separated"),
-  list(key = "license",           label = "License URL",                       type = "select",   notes = "One of the exact CC license URLs FAIRe2OBIS offers"),
+  list(key = "license",           label = "License URL",                       type = "select",   notes = "One of the exact CC license URLs MAT offers"),
   list(key = "pub_date",          label = "Publication date",                  type = "date",     notes = "YYYY-MM-DD"),
   list(key = "distribution_url",  label = "Project/organization website",      type = "text",     notes = "Optional"),
   list(key = "org_name",          label = "Organization name",                 type = "text"),
@@ -191,7 +191,7 @@ write_eml_metadata_excel <- function(path, values = NULL, creators = NULL, perso
 read_eml_metadata_excel <- function(path) {
   raw <- openxlsx::read.xlsx(path, sheet = 1, colNames = TRUE)
   if (!"key" %in% names(raw)) {
-    stop("This file doesn't look like a FAIRe2OBIS metadata template - missing the hidden 'key' column (column D). Start from the downloaded template rather than a blank workbook.")
+    stop("This file doesn't look like a MAT metadata template - missing the hidden 'key' column (column D). Start from the downloaded template rather than a blank workbook.")
   }
 
   values <- list()

@@ -27,7 +27,7 @@
 #    domain or leave the SES sandbox.
 #
 # Required environment variables (see .Renviron.example):
-#   SMTP_USER      - the sending Gmail address (e.g. faire2obis.noreply@gmail.com)
+#   SMTP_USER      - the sending Gmail address (e.g. mat.noreply@gmail.com)
 #   SMTP_PASSWORD  - a 16-character Gmail APP PASSWORD, not the account password
 #   ALLOWED_EMAIL_DOMAIN - defaults to "uwa.edu.au" if unset
 
@@ -228,14 +228,14 @@ smtp_configured <- function() {
 
 send_code_email <- function(to, code, purpose = c("signup", "reset")) {
   purpose <- match.arg(purpose)
-  subject <- if (purpose == "signup") "FAIRe2OBIS - verify your email" else "FAIRe2OBIS - reset your password"
+  subject <- if (purpose == "signup") "MAT - verify your email" else "MAT - reset your password"
   action  <- if (purpose == "signup") "finish creating your account" else "reset your password"
   msg <- emayili::envelope() |>
     emayili::from(Sys.getenv("SMTP_USER")) |>
     emayili::to(to) |>
     emayili::subject(subject) |>
     emayili::text(paste0(
-      "Your FAIRe2OBIS verification code is: ", code, "\n\n",
+      "Your MAT verification code is: ", code, "\n\n",
       "Enter this code in the app to ", action, ". ",
       "It expires in ", CODE_TTL_MINS, " minutes.\n\n",
       "If you didn't request this, you can ignore this email."
@@ -254,9 +254,9 @@ send_login_warning_email <- function(to) {
   msg <- emayili::envelope() |>
     emayili::from(Sys.getenv("SMTP_USER")) |>
     emayili::to(to) |>
-    emayili::subject("FAIRe2OBIS - repeated failed login attempts") |>
+    emayili::subject("MAT - repeated failed login attempts") |>
     emayili::text(paste0(
-      "Someone has tried to log in to your FAIRe2OBIS account with the wrong password, ",
+      "Someone has tried to log in to your MAT account with the wrong password, ",
       "more than once.\n\n",
       "If this was you and you've forgotten your password, use \"Forgot password\" on the login screen to reset it.\n\n",
       "If this wasn't you, reset your password as a precaution.\n\n",

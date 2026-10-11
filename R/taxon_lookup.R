@@ -32,7 +32,7 @@ FISH_GROUPS <- c("Actinopterygii", "Teleostei", "Chondrichthyes", "Elasmobranchi
 #' GET a JSON API with a short timeout. NULL on any failure - a slow or
 #' down external service must never break the popup.
 .get_json <- function(url, timeout = 10) {
-  h <- curl::new_handle(timeout = timeout, useragent = "FAIRe2OBIS (Minderoo OceanOmics Centre, UWA)")
+  h <- curl::new_handle(timeout = timeout, useragent = "MAT (Minderoo OceanOmics Centre, UWA)")
   res <- tryCatch(curl::curl_fetch_memory(url, handle = h), error = function(e) NULL)
   if (is.null(res) || res$status_code != 200) return(NULL)
   txt <- rawToChar(res$content)

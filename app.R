@@ -1,6 +1,6 @@
 ### app.R
 #
-# FAIRe2OBIS - interactive web app.
+# MAT - interactive web app.
 #
 # Wraps the same R/*.R functions the CLI pipeline (scripts/01-05) uses,
 # in a guided, validated workflow instead of hand-editing config.R and
@@ -518,7 +518,7 @@ ui <- page_fluid(
       div(class = "header-bubble", style = "width:40px; height:40px; bottom:-10px; left:38%;"),
 
       div(class = "brand-mark", HTML('
-        <svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="FAIRe2OBIS logo">
+        <svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MAT logo">
           <defs>
             <linearGradient id="f2oLogoGrad" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stop-color="#2a78d6"/>
@@ -535,7 +535,7 @@ ui <- page_fluid(
         </svg>
       ')),
       div(
-        h1("FAIRe2OBIS"),
+        h1("MAT", span(style = "font-weight:400; font-size:0.95rem; opacity:0.85; margin-left:8px;", "Multi-Assay Toolkit")),
         p("Convert FAIRe eDNA metabarcoding data into an OBIS-ready Darwin Core Archive")
       ),
       div(class = "header-spacer"),
@@ -675,7 +675,7 @@ ui <- page_fluid(
                  target = "_blank", rel = "noopener noreferrer", "Minderoo OceanOmics Centre at UWA"),
           span(class = "footer-sep", "|"),
           tags$a(href = "https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis",
-                 target = "_blank", rel = "noopener noreferrer", "FAIRe2OBIS on GitHub")
+                 target = "_blank", rel = "noopener noreferrer", "MAT on GitHub")
       ),
       div(class = "footer-copyright",
           paste0("© ", format(Sys.Date(), "%Y"), " Minderoo OceanOmics Centre at UWA. All rights reserved."))
@@ -2277,7 +2277,7 @@ server <- function(input, output, session) {
   observeEvent(input$back_to_5_from_6, { rv$current_step <- 5 })
 
   output$download_eml_template <- downloadHandler(
-    filename = function() "faire2obis_metadata_template.xlsx",
+    filename = function() "mat_metadata_template.xlsx",
     content = function(file) write_eml_metadata_excel(file)
   )
 
@@ -2597,7 +2597,7 @@ server <- function(input, output, session) {
   # Builds the archive zip at `file`. Shared by the Download button and the
   # Draft / Publish save, so all three always produce the identical archive.
   build_archive_zip <- function(file) {
-      tmpdir <- tempfile("faire2obis_")
+      tmpdir <- tempfile("mat_")
       dir.create(tmpdir, recursive = TRUE)
 
       # All data files sit flat in one folder, matching standard Darwin
@@ -2629,7 +2629,7 @@ server <- function(input, output, session) {
   observeEvent(input$save_archive_locked, { showModal(login_required_modal("save this archive")) })
 
   output$download_archive <- downloadHandler(
-    filename = function() paste0("faire2obis_archive_", format(Sys.Date(), "%Y%m%d"), ".zip"),
+    filename = function() paste0("mat_archive_", format(Sys.Date(), "%Y%m%d"), ".zip"),
     content = function(file) {
       req(rv$logged_in)  # belt-and-braces: the UI already hides this behind login for a guest
       req(rv$build_result, rv$worms_result)
