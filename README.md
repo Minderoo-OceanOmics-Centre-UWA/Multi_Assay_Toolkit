@@ -1,4 +1,4 @@
-# Multi-Assay Toolkit (MAT)
+# Multi-Assay Toolkit (MAT) <img src="docs/img/mat_hex.png" align="right" width="150" alt="MAT logo"/>
 
 **An open-source tool that turns FAIRe-formatted eDNA metabarcoding data into a Darwin Core Archive, with any number of assays published together as one dataset.**
 
@@ -8,9 +8,9 @@ The Multi-Assay Toolkit (MAT) reads [FAIRe](https://fair-edna.github.io/) spread
 
 eDNA metabarcoding projects often collect one set of physical samples (water, sediment, soil) and run them through **several primer sets ("assays")** to detect different groups of organisms. The sampling information (dates, coordinates, depth, environmental readings) is identical for every assay, because it is the same physical sample. Only the sequencing and taxonomy results differ.
 
-GBIF's [Metabarcoding Data Toolkit (MDT)](https://mdt.gbif.org/) is the most widely used tool for publishing metabarcoding data, and it works well for a single assay. It is built around an Occurrence core, where **one dataset = one assay**. Its user guide says: *"Mixed datasets (e.g., different primer sets used for the same set of samples) should be published separately."* A project with three assays becomes three unrelated datasets, each repeating the same sample metadata.
+Established tools such as GBIF's [Metabarcoding Data Toolkit (MDT)](https://mdt.gbif.org/) make publishing metabarcoding data straightforward, and they are designed around one assay per dataset; MDT's guidance is that *"mixed datasets (e.g., different primer sets used for the same set of samples) should be published separately."* That suits many projects. MAT is built for the projects where the same samples go through several assays and the team wants to publish them together.
 
-MAT builds the archive around an **Event core** instead, following the [OBIS-ENV-DATA](https://manual.obis.org/dna_data.html) pattern:
+MAT builds the archive around an **Event core**, following the [OBIS-ENV-DATA](https://manual.obis.org/dna_data.html) pattern:
 
 - **One Event core.** Each physical sample is written once.
 - **One Occurrence extension per assay.** The detections (ASVs) from each primer set, linked to the Event core by `eventID`.
@@ -33,13 +33,14 @@ flowchart TD
 
 The result is one dataset that says "these samples were taken once, and N assays were run on them". No sample metadata is repeated.
 
-| | MDT | MAT |
-|---|---|---|
-| Core type | Occurrence | Event |
-| Assays per dataset | One | **Any number** (one, two, three or more) |
-| Sample metadata | Repeated in every assay's dataset | Written once |
-| Input | OTU table + taxonomy + sample files | FAIRe workbooks, one per assay |
-| Taxonomy matching | GBIF backbone | WoRMS, with a review step |
+### Which tool fits your data?
+
+| Your project | A good fit |
+|---|---|
+| One assay, with an OTU table, taxonomy and sample sheet | [GBIF MDT](https://mdt.gbif.org/), which guides you through mapping and publishing |
+| Several assays run on the same samples, published as **one dataset** | MAT |
+| Data already in FAIRe workbooks | MAT reads them directly, one workbook per assay |
+| Marine data you want matched to WoRMS and checked with OBIS quality checks before upload | MAT |
 
 ## Who this is for
 
@@ -67,6 +68,15 @@ More detail on two steps:
   3. Otherwise, the single most similar column by primer or gene name.
 
   Always check the suggestion before building.
+
+- **Name review (Step 4).** Every decision is yours, and the original name always stays in `verbatimIdentification`:
+
+  | Situation | Your choices |
+  |---|---|
+  | WoRMS lists the name under a newer accepted name (a synonym) | **Use WoRMS's name**, or **keep my name**. Keeping it is fine: it stays linked to its WoRMS record and OBIS shows it under the accepted name. A switch is noted in `identificationRemarks`. |
+  | WoRMS can't find the name | **Use WoRMS's suggestion** (typo-tolerant match), **keep my name, not yet in WoRMS** (default; [OBIS's guidance](https://manual.obis.org/dna_data.html): `scientificNameID` left empty, NCBI ID in `taxonConceptID`), **try another name**, or **record as unknown** (*Biota incertae sedis*, for doubtful names). |
+
+  Each choice is also written as a sentence into the `eml.xml` methods.
 
 - **Not-marine review (Step 4).** After WoRMS matching, names WoRMS doesn't record as marine are listed with their WoRMS habitat, the number of records, and an **OBIS outcome**. This predicts what OBIS's own quality check ([`obis-qc`](https://github.com/iobis/obis-qc)) will do after publishing:
 
@@ -106,9 +116,25 @@ git clone https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis.git
 cd faire2obis
 ```
 
-### 3. Connect your own storage and email
+### 3. Run
 
-The app stores saved archives, reports and user accounts in an **AWS S3 bucket that you provide**, and sends login codes from **an email account that you provide**. This repository contains no credentials, and you cannot use ours.
+```r
+shiny::runApp()
+```
+
+That's all you need. With no further setup the app runs in **local mode**: there is no login screen, and you can go through all seven steps and download the finished archive. Keep the downloaded zips in a folder on your computer, upload them to an IPT, or share them with your OBIS node.
+
+Prefer not to use the app? The [R scripts](#using-the-r-scripts-instead-of-the-app) produce the same archive.
+
+### 4. Optional: connect storage and accounts
+
+If you want MAT to keep a record of every archive your team produces, connect an **AWS S3 bucket** and **an email account** of your own. The app then adds:
+
+- team accounts (sign-up with an emailed code, and the roles below)
+- saved drafts and a Publish folder, both browsable in the app
+- the one-page report saved alongside each archive
+
+This repository contains no credentials, and you cannot use ours.
 
 Copy `.Renviron.example` to `.Renviron` (next to `app.R`) and fill it in. `.Renviron` is gitignored, so your credentials are never committed.
 
@@ -132,38 +158,50 @@ To get the keys: in the AWS console create an S3 bucket, create an IAM user with
 | `SMTP_PASSWORD` | Yes | An app password for that address, **not** its normal login password (Gmail: Account → Security → 2-Step Verification → App passwords) |
 | `SMTP_HOST` | No | Defaults to `smtp.gmail.com` |
 | `SMTP_PORT` | No | Defaults to `587` |
-| `ALLOWED_EMAIL_DOMAIN` | No | Only addresses on this domain can sign up. Defaults to `uwa.edu.au`, so **set it to your own organisation's domain**. |
+| `ALLOWED_EMAIL_DOMAIN` | **Yes, for your own install** | Only addresses on this domain can sign up. Defaults to `uwa.edu.au` (the original deployment), so **set it to your own organisation's domain**. |
+| `ADMIN_EMAILS` | **Yes, for your own install** | Comma-separated admin addresses. Defaults to the original deployment's admin, so set your own. |
 | `SUPPORT_CONTACT_EMAIL` | No | Shown in "log in required" messages. Set it to your own contact address. |
 
-Without the S3 variables, the app still runs and Download still works, but saving to Draft or Publish is hidden. Without the SMTP variables, nobody can sign up or log in. Guests can still walk through the whole process without an account.
-
-### 4. Run
-
-```r
-shiny::runApp()
-```
-
-If you run the app locally with the same `.Renviron` as your live server, both use the same bucket. Drafts saved while testing are real and have to be deleted by hand.
+Accounts need both the S3 and the SMTP variables. If either is missing, the app stays in local mode. If you run the app locally with the same `.Renviron` as your live server, both use the same bucket: drafts saved while testing are real and have to be deleted by hand.
 
 ### Accounts and roles
 
-Downloading, saving a draft or publishing needs an account on the allowed email domain, verified by an emailed code.
+With storage connected, anyone can still build and download an archive without an account ("Continue without an account" on the login screen). An account is needed only to save to, or download from, the team's Draft and Publish storage.
 
 | Role | Can |
 |---|---|
-| **User** (default for every new signup) | Download the archive, save it to Draft |
+| **User** (default for every new signup) | Save archives to Draft, download saved archives |
 | **Publisher** | Everything a user can, plus move a draft into Publish |
 | **Admin** | Everything a publisher can, plus manage accounts and roles |
 
 A saved archive is either a timestamped draft (`Draft/<project>_<date>_<time>.zip`, never overwritten) or that project's published version (`Publish/<project>_CoreVersion.zip`). Both can be reviewed later from the app's Draft and Publish tabs without re-running anything.
 
+#### Why sign-up is restricted
+
+Anyone with an account can see and download the team's saved archives, including drafts that aren't ready to publish. So:
+
+- **Only one email domain can sign up** (`ALLOWED_EMAIL_DOMAIN`), checked before any code is sent. Outsiders can't create an account, but they can still use MAT without one to build and download archives from their own files.
+- **Every new account starts as User.** Only an admin can make someone a Publisher, so nothing reaches the Publish folder without an admin's decision.
+- Passwords are stored only as salted hashes, and emailed codes expire after 15 minutes.
+
+#### If you fork MAT
+
+Point the account settings at your own organisation in `.Renviron` before anyone signs up:
+
+1. `ALLOWED_EMAIL_DOMAIN`: your organisation's email domain, e.g. `your-organisation.org`.
+2. `ADMIN_EMAILS`: your admin address or addresses.
+3. `SUPPORT_CONTACT_EMAIL`: who people should ask for access.
+4. `FAIRE2OBIS_S3_BUCKET` and your own AWS keys, so accounts and archives live in your storage.
+
+If you skip step 1, your instance would accept sign-ups from the original deployment's domain instead of yours.
+
 ## Hosting it for your team
 
-The app is a standard Shiny app, so it runs anywhere Shiny does. The OceanOmics instance runs under [Shiny Server](https://posit.co/products/open-source/shiny-server/) on a [Nectar Research Cloud](https://ardc.edu.au/services/ardc-nectar-research-cloud/) virtual machine, and the same setup works on any Linux server:
+This is optional: hosting only gives your team one shared link. The app is a standard Shiny app, so it runs anywhere Shiny does, including [shinyapps.io](https://www.shinyapps.io/) and [Posit Connect Cloud](https://connect.posit.cloud/). The OceanOmics instance runs under [Shiny Server](https://posit.co/products/open-source/shiny-server/) on a [Nectar Research Cloud](https://ardc.edu.au/services/ardc-nectar-research-cloud/) virtual machine, and the same setup works on any Linux server:
 
 1. Install R, Shiny Server and the packages above, so the `shiny` user can load them.
 2. Clone this repository into `/srv/shiny-server/faire2obis`.
-3. Create `.Renviron` in that folder by hand (step 3 above).
+3. Optionally, create `.Renviron` in that folder by hand (step 4 above) to turn on storage and accounts.
 4. Open the server's Shiny port to your users.
 
 To release an update, push to your repository and run `git pull` in the app folder on the server. No restart is needed: new sessions pick up the new code. `git pull` never touches `.Renviron`. If the app shows "Disconnected from server", check the newest log in `/var/log/shiny-server/`.
@@ -203,7 +241,7 @@ Two DNA Derived Data terms are numeric in the GBIF definition but often hold mor
 
 ## Publishing through an IPT
 
-The tool produces the archive files. You publish them through any IPT (MDT cannot take a multi-assay dataset):
+The tool produces the archive files. You publish them through any IPT:
 
 1. Create a new resource and upload `Event.csv` as the core (Core Type: `Event`, ID field: `eventID`).
 2. Add each `Occurrence_<assay>.csv` as a source file, set as an `Occurrence` extension, and map its `eventID` column as the core-linking ID.

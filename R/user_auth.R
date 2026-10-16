@@ -1,13 +1,23 @@
 ### R/user_auth.R
 #
-# Minimal internal-use login system for the app: sign up, email-code
-# verification, login, forgot/reset password. Built for a SMALL, TRUSTED
-# group (this centre's own staff) - not a general-purpose auth system.
+# Minimal login system for the app: sign up, email-code verification,
+# login, forgot/reset password. Built for a SMALL, TRUSTED group (one
+# organisation's own staff) - not a general-purpose auth system. Accounts
+# only guard the shared S3 storage (saved drafts, published archives,
+# reports); building and downloading an archive needs no account at all.
+#
+# WHY sign-up is restricted: anyone with an account can see and download
+# the team's saved archives, including unpublished drafts. Limiting sign-up
+# to one email domain means only the organisation's own staff can get that
+# far, and new accounts start as "user" - only an admin can make someone a
+# publisher. IF YOU FORK THIS REPO: set ALLOWED_EMAIL_DOMAIN and ADMIN_EMAILS
+# in .Renviron to your own organisation (see .Renviron.example), or staff of
+# the original organisation could sign up to your instance.
 #
 # Design choices, and why:
-#  - Signup is restricted to @uwa.edu.au addresses (is_uwa_email()), checked
-#    BEFORE anything else happens (no code is generated/sent for a rejected
-#    address).
+#  - Signup is restricted to ALLOWED_EMAIL_DOMAIN addresses (is_allowed_email()),
+#    checked BEFORE anything else happens (no code is generated/sent for a
+#    rejected address).
 #  - Passwords are never stored or logged in the clear - only a sodium
 #    password_store() hash (bcrypt-family, salted, slow-by-design). Emailed
 #    verification/reset codes are likewise stored only as a sha256 hash with
@@ -49,9 +59,13 @@ FAILED_LOGIN_WARNING_THRESHOLD <- 3        # wrong-password attempts before we e
 # store (a hardcoded floor, not just a default), so an admin can never be
 # accidentally locked out by a bad edit or a corrupted store. New accounts
 # get role "admin" automatically if their email is in this list, "user"
-# otherwise - see start_signup(). Add more emails here if a second admin is
-# needed later.
-ADMIN_SEED_EMAILS <- c("anushka.dissanayaka@uwa.edu.au")
+# otherwise - see start_signup(). Set ADMIN_EMAILS in .Renviron
+# (comma-separated) to choose your own admins; the address below is only the
+# original deployment's default.
+ADMIN_SEED_EMAILS <- local({
+  v <- Sys.getenv("ADMIN_EMAILS")
+  if (nzchar(v)) tolower(trimws(strsplit(v, ",")[[1]])) else c("anushka.dissanayaka@uwa.edu.au")
+})
 
 allowed_email_domain <- function() {
   v <- Sys.getenv("ALLOWED_EMAIL_DOMAIN")
@@ -200,6 +214,13 @@ set_user_role <- function(acting_admin_email, target_email, new_role) {
 # ---------------------------------------------------------------------
 smtp_configured <- function() {
   nzchar(Sys.getenv("SMTP_USER")) && nzchar(Sys.getenv("SMTP_PASSWORD"))
+}
+
+#' Accounts need both the S3 user store and email for login codes. Without
+#' either, the app runs in local mode: no login screen, everyone can build
+#' and download archives, and Draft/Publish are simply unavailable.
+accounts_enabled <- function() {
+  archive_history_enabled() && smtp_configured()
 }
 
 #' SMTP host/port are configurable (SMTP_HOST/SMTP_PORT), defaulting to

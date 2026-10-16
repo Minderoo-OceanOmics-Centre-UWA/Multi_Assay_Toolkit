@@ -54,6 +54,18 @@ suggest_correction_via_taxamatch <- function(name) {
   valid_name
 }
 
+#' Every close name WoRMS' typo-tolerant search finds for `name`, each
+#' followed through to its current accepted name. Unlike
+#' suggest_correction_via_taxamatch() this keeps several candidates, so a
+#' misspelling with more than one plausible fix is still recognised as a
+#' misspelling (the reviewer picks). Empty when nothing is close.
+fuzzy_candidates_via_taxamatch <- function(name) {
+  result <- tryCatch(worrms::wm_records_taxamatch(name = name, marine_only = FALSE), error = function(e) NULL)
+  if (is.null(result) || length(result) == 0 || is.null(result[[1]]) || nrow(result[[1]]) == 0) return(character())
+  v <- result[[1]]$valid_name
+  unique(v[!is.na(v) & nzchar(v)])
+}
+
 #' Match every unique scientificName across a set of Occurrence tables
 #' against WoRMS, resolving as much as possible without guessing.
 #'
@@ -107,6 +119,24 @@ match_worms <- function(occurrence_tables,
   ambiguous_names    <- list()
   resolved_ambiguous <- list()
 
+  # One matched_df row from one WoRMS record. valid_* is WoRMS' current
+  # accepted name for that record (the same record when it is accepted).
+  matched_row <- function(queried_name, rec, aphia_id = rec$AphiaID[1]) {
+    tibble::tibble(
+      queriedName           = queried_name,
+      scientificNameID      = paste0("urn:lsid:marinespecies.org:taxname:", aphia_id),
+      worms_status          = rec$status[1],
+      worms_valid_name      = rec$valid_name[1],
+      worms_valid_AphiaID   = rec$valid_AphiaID[1],
+      worms_valid_authority = rec$valid_authority[1],
+      worms_rank            = rec$rank[1],
+      worms_isMarine        = rec$isMarine[1],
+      worms_isBrackish      = rec$isBrackish[1],
+      worms_isFreshwater    = rec$isFreshwater[1],
+      worms_isTerrestrial   = rec$isTerrestrial[1]
+    )
+  }
+
   for (i in seq_along(batches)) {
     batch <- batches[[i]]
     log_msg("Matching batch ", i, " of ", length(batches), " (", length(batch), " names)...")
@@ -128,17 +158,7 @@ match_worms <- function(occurrence_tables,
         unmatched_names <- c(unmatched_names, queried_name)
 
       } else if (nrow(recs) == 1) {
-        matched_rows[[queried_name]] <- tibble::tibble(
-          queriedName      = queried_name,
-          scientificNameID = paste0("urn:lsid:marinespecies.org:taxname:", recs$AphiaID[1]),
-          worms_status      = recs$status[1],
-          worms_valid_name  = recs$valid_name[1],
-          worms_rank        = recs$rank[1],
-          worms_isMarine    = recs$isMarine[1],
-          worms_isBrackish  = recs$isBrackish[1],
-          worms_isFreshwater  = recs$isFreshwater[1],
-          worms_isTerrestrial = recs$isTerrestrial[1]
-        )
+        matched_rows[[queried_name]] <- matched_row(queried_name, recs)
 
       } else {
         # More than one WoRMS record shares this name. Three ways this
@@ -151,33 +171,13 @@ match_worms <- function(occurrence_tables,
         if (queried_name %in% names(manual_aphia_overrides)) {
           chosen_id  <- unname(manual_aphia_overrides[queried_name])
           chosen_row <- recs %>% dplyr::filter(AphiaID == chosen_id)
-          matched_rows[[queried_name]] <- tibble::tibble(
-            queriedName      = queried_name,
-            scientificNameID = paste0("urn:lsid:marinespecies.org:taxname:", chosen_id),
-            worms_status      = chosen_row$status[1],
-            worms_valid_name  = chosen_row$valid_name[1],
-            worms_rank        = chosen_row$rank[1],
-            worms_isMarine    = chosen_row$isMarine[1],
-            worms_isBrackish  = chosen_row$isBrackish[1],
-            worms_isFreshwater  = chosen_row$isFreshwater[1],
-            worms_isTerrestrial = chosen_row$isTerrestrial[1]
-          )
+          matched_rows[[queried_name]] <- matched_row(queried_name, chosen_row, chosen_id)
           resolved_ambiguous[[queried_name]] <- recs %>%
             dplyr::mutate(queriedName = queried_name, chosenAphiaID = chosen_id, resolution = "manual_override") %>%
             dplyr::select(queriedName, AphiaID, scientificname, status, rank, isMarine, chosenAphiaID, resolution)
 
         } else if (nrow(accepted_rows) == 1) {
-          matched_rows[[queried_name]] <- tibble::tibble(
-            queriedName      = queried_name,
-            scientificNameID = paste0("urn:lsid:marinespecies.org:taxname:", accepted_rows$AphiaID[1]),
-            worms_status      = accepted_rows$status[1],
-            worms_valid_name  = accepted_rows$valid_name[1],
-            worms_rank        = accepted_rows$rank[1],
-            worms_isMarine    = accepted_rows$isMarine[1],
-            worms_isBrackish  = accepted_rows$isBrackish[1],
-            worms_isFreshwater  = accepted_rows$isFreshwater[1],
-            worms_isTerrestrial = accepted_rows$isTerrestrial[1]
-          )
+          matched_rows[[queried_name]] <- matched_row(queried_name, accepted_rows)
           resolved_ambiguous[[queried_name]] <- recs %>%
             dplyr::mutate(queriedName = queried_name, chosenAphiaID = accepted_rows$AphiaID[1], resolution = "single_accepted") %>%
             dplyr::select(queriedName, AphiaID, scientificname, status, rank, isMarine, chosenAphiaID, resolution)
@@ -200,16 +200,18 @@ match_worms <- function(occurrence_tables,
   # For every unmatched name, try WoRMS' own fuzzy-match service as a
   # suggested correction (see suggest_correction_via_taxamatch()) - a
   # suggestion surfaced to the caller for confirmation, not applied here.
+  # fuzzy_candidates keeps every close name (one WoRMS call per name);
+  # suggested_corrections keeps the old single-candidate meaning for scripts.
   suggested_corrections <- character()
+  fuzzy_candidates <- list()
   if (length(unmatched_names) > 0) {
     log_msg("Looking up fuzzy-match suggestions for unmatched names...")
-    suggested_corrections <- setNames(
-      vapply(unmatched_names, suggest_correction_via_taxamatch, character(1)),
-      unmatched_names
-    )
-    suggested_corrections <- suggested_corrections[!is.na(suggested_corrections)]
-    if (length(suggested_corrections) > 0) {
-      log_msg("  Found ", length(suggested_corrections), " suggestion(s).")
+    fuzzy_candidates <- setNames(lapply(unmatched_names, fuzzy_candidates_via_taxamatch), unmatched_names)
+    fuzzy_candidates <- fuzzy_candidates[lengths(fuzzy_candidates) > 0]
+    single <- fuzzy_candidates[lengths(fuzzy_candidates) == 1]
+    suggested_corrections <- vapply(single, function(x) x[1], character(1))
+    if (length(fuzzy_candidates) > 0) {
+      log_msg("  Found close names for ", length(fuzzy_candidates), " name(s).")
     }
   }
 
@@ -221,6 +223,15 @@ match_worms <- function(occurrence_tables,
   # reviews each one in the app and accepts it - not decided by a rule here.
   non_marine_df <- if (nrow(matched_df) > 0) {
     matched_df %>% dplyr::filter(worms_isMarine == 0 | is.na(worms_isMarine))
+  } else {
+    tibble::tibble()
+  }
+  # Names WoRMS knows, but lists under a different current accepted name
+  # (synonyms, outdated combinations). The user decides per name whether
+  # to switch - see apply_name_choices().
+  synonym_df <- if (nrow(matched_df) > 0) {
+    matched_df %>% dplyr::filter(!is.na(worms_valid_name), worms_valid_name != "",
+                                 worms_valid_name != queriedName, !is.na(worms_valid_AphiaID))
   } else {
     tibble::tibble()
   }
@@ -259,7 +270,77 @@ match_worms <- function(occurrence_tables,
     unmatched_names        = unmatched_names,
     resolved_ambiguous_df  = resolved_ambiguous_df,
     non_marine_df          = non_marine_df,
+    synonym_df             = synonym_df,
     suggested_corrections  = suggested_corrections,
+    fuzzy_candidates       = fuzzy_candidates,   # unmatched name -> every close WoRMS name
+    name_lookup          = clean_lookup,   # raw scientificName -> name sent to WoRMS
     messages               = messages
   )
+}
+
+#' Apply the reviewer's per-name choices to match_worms() output.
+#'
+#' @param worms_result match_worms() output
+#' @param use_accepted Names (as sent to WoRMS) to switch to WoRMS' current
+#'   accepted name. Anything not listed keeps the reviewer's own name, still
+#'   linked to its WoRMS record (OBIS shows it under the accepted name).
+#' @param keep_names Unmatched names the reviewer confirmed are real but not
+#'   yet in WoRMS. Kept as-is with scientificNameID left empty - OBIS's own
+#'   guidance for names without an AphiaID (manual.obis.org/dna_data): the
+#'   NCBI ID stays in taxonConceptID and OBIS links the record to the nearest
+#'   higher rank it finds in WoRMS. Only a remark is added.
+#' @param unknown_names Unmatched names to publish as "Biota incertae sedis"
+#'   (AphiaID 12) instead - OBIS's name for unknown sequences.
+#' @return The occurrence tables, with each change noted in
+#'   identificationRemarks. verbatimIdentification is never touched, so the
+#'   original identification is always kept.
+apply_name_choices <- function(worms_result, use_accepted = character(), unknown_names = character(),
+                               keep_names = character()) {
+  tables <- worms_result$occurrence_tables
+  if (length(use_accepted) == 0 && length(unknown_names) == 0 && length(keep_names) == 0) return(tables)
+
+  add_remark <- function(old, note) {
+    ifelse(is.na(old) | old == "", note, paste(old, note, sep = " | "))
+  }
+  syn <- worms_result$synonym_df
+  syn <- if (!is.null(syn) && nrow(syn) > 0) syn[syn$queriedName %in% use_accepted, , drop = FALSE] else NULL
+  lookup <- worms_result$name_lookup
+  unknown_raw <- c(unknown_names, names(lookup)[lookup %in% unknown_names])
+  keep_raw <- c(keep_names, names(lookup)[lookup %in% keep_names])
+  incertae_id <- "urn:lsid:marinespecies.org:taxname:12"
+
+  lapply(tables, function(occ) {
+    if (!is.null(syn) && nrow(syn) > 0) {
+      i <- match(occ$scientificName, syn$queriedName)
+      hit <- !is.na(i)
+      if (any(hit)) {
+        old_name <- occ$scientificName[hit]
+        occ$scientificName[hit]   <- syn$worms_valid_name[i[hit]]
+        occ$scientificNameID[hit] <- paste0("urn:lsid:marinespecies.org:taxname:", syn$worms_valid_AphiaID[i[hit]])
+        if ("scientificNameAuthorship" %in% names(occ)) occ$scientificNameAuthorship[hit] <- syn$worms_valid_authority[i[hit]]
+        if ("identificationRemarks" %in% names(occ)) {
+          occ$identificationRemarks[hit] <- add_remark(occ$identificationRemarks[hit],
+            paste0("Name updated from '", old_name, "' to the WoRMS accepted name '", syn$worms_valid_name[i[hit]], "'."))
+        }
+      }
+    }
+    hit <- occ$scientificName %in% unknown_raw & (is.na(occ$scientificNameID) | occ$scientificNameID == "")
+    if (any(hit)) {
+      old_name <- occ$scientificName[hit]
+      occ$scientificName[hit]   <- "Biota incertae sedis"
+      occ$scientificNameID[hit] <- incertae_id
+      if ("taxonRank" %in% names(occ)) occ$taxonRank[hit] <- NA_character_
+      if ("scientificNameAuthorship" %in% names(occ)) occ$scientificNameAuthorship[hit] <- NA_character_
+      if ("identificationRemarks" %in% names(occ)) {
+        occ$identificationRemarks[hit] <- add_remark(occ$identificationRemarks[hit],
+          paste0("Identified as '", old_name, "', which is not yet registered in WoRMS; recorded as Biota incertae sedis until it is."))
+      }
+    }
+    hit <- occ$scientificName %in% keep_raw & (is.na(occ$scientificNameID) | occ$scientificNameID == "")
+    if (any(hit) && "identificationRemarks" %in% names(occ)) {
+      occ$identificationRemarks[hit] <- add_remark(occ$identificationRemarks[hit],
+        "Name not yet registered in WoRMS; scientificNameID left empty (taxonConceptID holds the reference-database ID).")
+    }
+    occ
+  })
 }

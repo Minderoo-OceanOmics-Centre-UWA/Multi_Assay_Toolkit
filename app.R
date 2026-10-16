@@ -56,6 +56,7 @@ source("R/build_eml.R")
 source("R/eml_excel.R")
 source("R/archive_history.R")
 source("R/user_auth.R")
+source("R/about_page.R")
 
 # Converts a scientific name into a safe Shiny input-id fragment (no
 # spaces/punctuation) for the Step 4 per-name review widgets.
@@ -84,7 +85,7 @@ success_modal <- function(title, details, go_tab = NULL, go_label = NULL) {
 login_required_modal <- function(action) {
   modalDialog(
     title = tagList(bsicons::bs_icon("lock-fill"), " Log in required"),
-    p(paste0("You need to log in to ", action, ". You can still go through the rest of the process as a guest.")),
+    p(paste0("You need to log in to ", action, ". Without an account you can still build and download the archive.")),
     p(class = "muted", "Not part of this organisation, or need access? Contact ",
       tags$a(href = paste0("mailto:", contact_email()), contact_email()), "."),
     footer = tagList(modalButton("Keep browsing as guest"),
@@ -122,14 +123,14 @@ options(shiny.maxRequestSize = 100 * 1024^2)
 
 # ---------------------------------------------------------------------
 # Theme - same palette as the README charts (validated categorical/
-# sequential blue, #2a78d6) for a consistent brand between the app and
+# sequential blue, #0e6a8a) for a consistent brand between the app and
 # the docs.
 # ---------------------------------------------------------------------
 app_theme <- bs_theme(
   version      = 5,
-  bg           = "#f9f9f7",
+  bg           = "#f5f7fa",
   fg           = "#0b0b0b",
-  primary      = "#2a78d6",
+  primary      = "#0e6a8a",
   secondary    = "#898781",
   success      = "#0ca30c",
   warning      = "#fab219",
@@ -144,23 +145,13 @@ STEPS <- c("Upload", "Validate", "Build", "Taxonomy", "QC Checks", "Metadata", "
 ACTIVE_STEPS <- 1:7  # all steps functional
 
 app_css <- "
-  body { background-color: #f9f9f7; }
+  body { background-color: #f5f7fa; }
   html, body { height: auto !important; overflow-y: auto !important; }
 
   /* Sticky footer: the page container fills at least the viewport and the
      footer's auto top margin pushes it to the bottom when content is short
      (min-height, not height, so long pages still just grow and scroll). */
-  body > .container-fluid { min-height: 100vh; display: flex; flex-direction: column; }
-
-  /* Subtle underwater scene behind the whole page (light rays, bubbles,
-     seaweed) - fixed to the viewport (not the scrollable page), so it
-     stays a constant, quiet backdrop rather than scrolling past. Very
-     low opacity by design - texture, not a picture to look at. */
-  .ocean-bg-layer {
-    position: fixed; inset: 0; z-index: -1; opacity: 0.09;
-    pointer-events: none; overflow: hidden;
-  }
-  .ocean-bg-layer svg { width: 100%; height: 100%; }
+  body > .container-fluid { min-height: 100vh; display: flex; flex-direction: column; padding-left: 0; padding-right: 0; }
 
   /* Positioning context for the file-input scroll-jack fix in the
      <script> below (that fix has to happen in JS - Shiny's own
@@ -168,30 +159,38 @@ app_css <- "
      however specific, can override). */
   .btn-file { position: relative; overflow: hidden; }
 
+  /* Header: one straight, solid band (no wave or decoration). */
   .app-header {
-    position: relative; overflow: hidden;
-    background: linear-gradient(160deg, #04182f 0%, #0a3d62 40%, #0f7a8c 75%, #14a3a3 100%);
-    color: #ffffff; padding: 22px 36px 46px 36px; display: flex; align-items: center; gap: 16px;
+    background: #071d33; color: #ffffff; padding: 12px 32px; display: flex; align-items: center; gap: 14px;
+    border-bottom: 1px solid #0f2f4d;
   }
-  .header-bubble {
-    position: absolute; border-radius: 50%; background: rgba(255,255,255,0.08);
-    pointer-events: none;
-  }
-  .header-wave { position: absolute; left: 0; right: 0; bottom: -2px; width: 100%; height: 46px; line-height: 0; }
-  .app-header .brand-mark { flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25)); }
-  .app-header h1 { font-size: 1.34rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-  .app-header p { color: #cfe9ec; margin: 1px 0 0 0; font-size: 0.86rem; }
+  .app-header .brand-mark { flex-shrink: 0; line-height: 0; }
+  .app-header h1 { font-size: 1.08rem; font-weight: 700; margin: 0; letter-spacing: -0.005em; }
+  .app-header p { color: #93b3c6; margin: 2px 0 0 0; font-size: 0.8rem; }
   .app-header .header-spacer { flex: 1; }
-  .restart-btn { color: #cfe9ec !important; border-color: rgba(255,255,255,0.28) !important; }
-  .restart-btn:hover { color: #fff !important; border-color: #ffffff !important; background: rgba(255,255,255,0.12) !important; }
+  .restart-btn { color: #d4e3ec !important; border-color: rgba(255,255,255,0.22) !important; }
+  .restart-btn:hover { color: #fff !important; border-color: rgba(255,255,255,0.6) !important; background: rgba(255,255,255,0.08) !important; }
 
-  .stepper-flex { display: flex; align-items: flex-start; padding: 26px 48px 22px 48px; background: #ffffff; border-bottom: 1px solid #eceae4; }
+  /* White text on blue buttons, and white cards on the grey page. */
+  .btn-primary, .btn-primary:hover, .btn-primary:focus, .btn-primary:active { color: #ffffff !important; }
+  .card, .card-body { background-color: #ffffff; }
+
+  /* Main navigation: a white bar with an underline on the active tab. */
+  #main_tab.nav-tabs { background: #ffffff; border-bottom: 1px solid #e3e6ea; padding: 0 24px; gap: 2px; }
+  #main_tab.nav-tabs .nav-link {
+    border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+    color: #4f5b66; font-weight: 600; font-size: 0.9rem; padding: 14px 14px 12px 14px; margin-bottom: -1px;
+  }
+  #main_tab.nav-tabs .nav-link:hover { color: #0b2540; border-bottom-color: #cdd4db; }
+  #main_tab.nav-tabs .nav-link.active { color: #0b5672; border-bottom-color: #0e6a8a; background: none; }
+
+  .stepper-flex { display: flex; align-items: flex-start; padding: 26px 48px 22px 48px; background: #ffffff; border-bottom: 1px solid #e3e6ea; }
   .step-item { display: flex; flex-direction: column; align-items: center; }
   .step-circle {
     width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
     font-weight: 700; font-size: 0.82rem; border: 2px solid #dedcd3; color: #a9a89f; background: #fff; transition: all .15s ease;
   }
-  .step-circle.active { border-color: #2a78d6; background: #2a78d6; color: #fff; box-shadow: 0 0 0 5px rgba(42,120,214,0.14); }
+  .step-circle.active { border-color: #0e6a8a; background: #0e6a8a; color: #fff; box-shadow: 0 0 0 5px rgba(14,106,138,0.14); }
   .step-circle.done { border-color: #0ca30c; background: #0ca30c; color: #fff; }
   .step-circle.disabled { border-color: #eceae4; color: #c3c2b7; }
   .step-label { font-size: 0.74rem; margin-top: 7px; color: #a9a89f; text-align: center; max-width: 84px; }
@@ -199,15 +198,15 @@ app_css <- "
   .step-line { flex: 1; height: 2px; background: #eceae4; margin: 16px 6px 0 6px; }
   .step-line.done { background: #0ca30c; }
 
-  .content-wrap { max-width: 880px; margin: -18px auto 0 auto; padding: 32px 24px 70px 24px; position: relative; z-index: 1; }
+  .content-wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 70px 24px; position: relative; z-index: 1; }
   .card {
     box-shadow: 0 1px 2px rgba(11,11,11,0.03), 0 4px 10px rgba(11,11,11,0.03);
     margin-bottom: 18px; transition: box-shadow .18s ease, transform .18s ease;
   }
-  .card:hover { box-shadow: 0 2px 6px rgba(11,11,11,0.05), 0 10px 24px rgba(11,11,11,0.07); transform: translateY(-1px); }
+  .card:hover { box-shadow: 0 1px 2px rgba(11,11,11,0.04), 0 6px 16px rgba(11,11,11,0.06); }
   .card-header { background: #fff; font-weight: 600; font-size: 0.94rem; padding: 14px 20px; display:flex; align-items:center; gap:8px; }
   .card-body { padding: 20px; }
-  .section-icon { color: #2a78d6; }
+  .section-icon { color: #0e6a8a; }
 
   .issue-card { border-left: 4px solid #d03b3b; }
   .issue-card.warning { border-left-color: #fab219; }
@@ -217,7 +216,7 @@ app_css <- "
   .assay-col-choices .checkbox { margin: 0; }
   .assay-col-choices .checkbox label { display: flex; gap: 10px; align-items: flex-start; width: 100%; height: 100%; padding: 10px 12px;
     border: 1px solid #e3e1da; border-radius: 8px; background: #fff; cursor: pointer; }
-  .assay-col-choices .checkbox label:has(input:checked) { border-color: #0d6efd; background: #f3f8ff; }
+  .assay-col-choices .checkbox label:has(input:checked) { border-color: #0e6a8a; background: #eef7f9; }
   .assay-col-choices .checkbox input { margin-top: 4px; flex-shrink: 0; }
   .assay-col-choice { font-size: 0.92rem; line-height: 1.45; }
   .assay-col-id { display: inline-block; font-size: 0.75rem; color: #6c757d; background: #f1f0ec; border-radius: 4px; padding: 0 6px; margin-right: 6px; }
@@ -256,7 +255,7 @@ app_css <- "
   .auth-card .form-label { font-weight: 600; font-size: 0.86rem; color: #0b0b0b; }
   .auth-card .form-control { padding: 10px 14px; }
   .auth-card .form-group, .auth-card > .card-body > div.form-group { margin-bottom: 16px; }
-  .auth-card a { color: #2a78d6; font-weight: 600; text-decoration: none; }
+  .auth-card a { color: #0e6a8a; font-weight: 600; text-decoration: none; }
   .auth-card a:hover { text-decoration: underline; }
   .auth-guest-box {
     margin-top: 22px; padding: 14px 16px; border-radius: 10px;
@@ -264,17 +263,122 @@ app_css <- "
   }
 
   .app-footer {
-    background: linear-gradient(160deg, #04182f 0%, #0a3d62 45%, #0f7a8c 100%);
-    color: #cfe9ec; padding: 28px 36px; margin-top: auto; flex-shrink: 0;
+    background: #071d33; border-top: 1px solid #0f2f4d;
+    color: #cfe9ec; padding: 22px 32px; margin-top: auto; flex-shrink: 0;
     display: flex; flex-direction: column; align-items: center; gap: 6px;
     text-align: center; font-size: 0.82rem;
   }
-  .app-footer a { color: #8fd6dc; text-decoration: none; }
+  .app-footer a { color: #8fd0d8; text-decoration: none; }
   .app-footer a:hover { color: #ffffff; text-decoration: underline; }
   .app-footer .footer-credit { color: #ffffff; font-weight: 600; font-size: 0.86rem; }
   .app-footer .footer-links { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; }
   .app-footer .footer-sep { color: rgba(255,255,255,0.25); }
-  .app-footer .footer-copyright { color: #9fc9cd; font-size: 0.76rem; margin-top: 4px; }
+  .app-footer .footer-copyright { color: #7f9fb3; font-size: 0.76rem; margin-top: 4px; }
+  .footer-partner { background: #ffffff; border-radius: 10px; padding: 10px 22px; margin-bottom: 12px; line-height: 0; }
+  .footer-partner img { height: 54px; max-width: 100%; }
+  .footer-partner.placeholder {
+    background: transparent; border: 1.5px dashed rgba(255,255,255,0.28); color: #7f9fb3;
+    line-height: 1.4; font-size: 0.8rem; padding: 14px 26px;
+  }
+
+  /* ---- Page background --------------------------------------------------
+     Soft brand-coloured glows at the top, fixed to the viewport so they
+     stay put on scroll. */
+  body {
+    background-color: #f3f6f9;
+    background-image:
+      radial-gradient(1100px 520px at 8% -8%, rgba(14,106,138,0.11), transparent 62%),
+      radial-gradient(900px 480px at 96% -4%, rgba(20,163,163,0.12), transparent 60%),
+      linear-gradient(180deg, #eef3f8 0%, #f3f6f9 420px);
+    background-attachment: fixed;
+  }
+
+  .page-photo {
+    position: fixed; inset: 0; z-index: -2; pointer-events: none;
+    background: url('page_bg.jpg') center / cover no-repeat; opacity: 0.03;
+  }
+
+  /* ---- Cards and forms -------------------------------------------------
+     Defined last so they override the defaults above. Neutral greys,
+     8-10px radii, one accent colour (the primary blue). */
+  .content-wrap .card { border: 1px solid #e4e7ec; border-radius: 12px; box-shadow: 0 1px 2px rgba(16,24,40,0.04); overflow: hidden; }
+  .content-wrap .card:hover { box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 4px 12px rgba(16,24,40,0.05); transform: none; }
+  .card-header { background: #ffffff; border-bottom: 1px solid #eef0f3; padding: 15px 22px; font-size: 0.97rem; font-weight: 700; color: #101828; gap: 12px; }
+  .card-header .section-icon {
+    width: 32px !important; height: 32px !important; padding: 7px; border-radius: 9px; flex-shrink: 0;
+    background: #e5f1f4; color: #0b5672;
+  }
+  .card-body { padding: 22px; }
+
+  .control-label, .form-label { font-size: 0.85rem; font-weight: 600; color: #344054; margin-bottom: 6px; }
+  .form-group { margin-bottom: 16px; }
+  .content-wrap .shiny-input-container:not(.shiny-input-container-inline) { width: 100%; max-width: 100%; }
+  .form-control, .form-select, .selectize-input {
+    background-color: #ffffff; border: 1px solid #d0d5dd; border-radius: 8px; padding: 9px 12px; font-size: 0.92rem; color: #101828;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.05); transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .form-control::placeholder { color: #98a2b3; }
+  .form-control:focus, .form-select:focus, .selectize-input.focus {
+    border-color: #0e6a8a; box-shadow: 0 0 0 4px rgba(14,106,138,0.14); outline: none;
+  }
+  .form-control[readonly] { background-color: #ffffff; }
+  .muted { color: #667085; font-size: 0.85rem; }
+
+  /* File input: a proper button joined to the file-name box */
+  .input-group .btn-file {
+    background: #f9fafb; border: 1px solid #d0d5dd; color: #344054; font-weight: 600; font-size: 0.88rem;
+    border-radius: 8px 0 0 8px; padding: 9px 16px; box-shadow: 0 1px 2px rgba(16,24,40,0.05);
+  }
+  .input-group .btn-file:hover { background: #f2f4f7; color: #101828; }
+  .input-group > .form-control { border-radius: 0 8px 8px 0 !important; border-left: none; }
+  .shiny-file-input-progress { border-radius: 999px; background: #eef0f3; margin-top: 8px; }
+  .shiny-file-input-progress .progress-bar { background: #0e6a8a; border-radius: 999px; font-size: 0.72rem; }
+
+  /* Curated / nt choice as a two-option switch */
+  .choice-switch { display: inline-flex; gap: 2px; background: #f2f4f7; padding: 3px; border-radius: 9px; }
+  .choice-switch .radio-inline { margin: 0 !important; padding: 0; position: relative; }
+  .choice-switch .radio-inline input { position: absolute; opacity: 0; pointer-events: none; }
+  .choice-switch .radio-inline span { display: block; padding: 5px 12px; border-radius: 7px; font-size: 0.82rem; font-weight: 600; color: #475467; cursor: pointer; white-space: nowrap; }
+  .choice-switch .radio-inline:has(input:checked) span { background: #ffffff; color: #101828; box-shadow: 0 1px 3px rgba(16,24,40,0.14); }
+  #reference_db .shiny-options-group { display: inline-flex; gap: 2px; background: #f2f4f7; padding: 4px; border-radius: 10px; margin-top: 2px; }
+  #reference_db .radio-inline { margin: 0 !important; padding: 0; position: relative; }
+  #reference_db .radio-inline input { position: absolute; opacity: 0; pointer-events: none; }
+  #reference_db .radio-inline span { display: block; padding: 7px 16px; border-radius: 7px; font-size: 0.88rem; font-weight: 600; color: #475467; cursor: pointer; transition: all .15s ease; }
+  #reference_db .radio-inline:has(input:checked) span { background: #ffffff; color: #101828; box-shadow: 0 1px 3px rgba(16,24,40,0.14); }
+  #reference_db .radio-inline:has(input:focus-visible) span { outline: 2px solid #0e6a8a; }
+
+  /* One assay's upload row */
+  .assay-row { background: #ffffff; border: 1px solid #e4e7ec; border-radius: 10px; padding: 16px 18px 2px 18px; margin-bottom: 12px; }
+  .assay-row .form-group { margin-bottom: 10px; }
+  .assay-row .shiny-file-input-progress { margin: 6px 0 0 0; height: 6px; }
+  .assay-row .shiny-file-input-progress .progress-bar { font-size: 0; }
+  .assay-row .btn-outline-danger { border-color: #f4c7c3; color: #d92d20; border-radius: 8px; }
+  .assay-row .btn-outline-danger:hover { background: #fef3f2; color: #b42318; }
+
+  /* 'Add another ...' buttons as a dashed drop-in row */
+  .content-wrap [id^='add_'].btn {
+    display: block; width: 100%; border: 1.5px dashed #c4cdd6; background: #fafbfc; color: #0b5672;
+    font-weight: 600; border-radius: 10px; padding: 10px;
+  }
+  .content-wrap [id^='add_'].btn:hover { border-color: #0e6a8a; background: #eef7f9; color: #0b5672; }
+
+  /* Notices */
+  .content-wrap .alert { border: 1px solid; border-left-width: 4px; border-radius: 10px; font-size: 0.9rem; line-height: 1.55; }
+  .content-wrap .alert-info    { background: #eef7f9; border-color: #cde4ea; border-left-color: #0e6a8a; color: #0b3a4d; }
+  .content-wrap .alert-warning { background: #fffaeb; border-color: #fdeab8; border-left-color: #f5a524; color: #5c4100; }
+  .content-wrap .alert-danger  { background: #fef3f2; border-color: #fbd5d2; border-left-color: #d92d20; color: #7a271a; }
+  .content-wrap .alert-success { background: #ecfdf3; border-color: #c6f0d6; border-left-color: #12b76a; color: #05603a; }
+
+  /* Buttons */
+  .btn { border-radius: 8px; font-weight: 600; }
+  .btn-primary { box-shadow: 0 1px 2px rgba(16,24,40,0.08); }
+  .content-wrap .btn-primary:not(.btn-sm) { padding: 10px 20px; }
+
+  /* Stepper */
+  .stepper-flex { padding: 22px 48px 18px 48px; }
+  .step-circle { width: 32px; height: 32px; font-size: 0.8rem; }
+  .step-label { font-size: 0.76rem; font-weight: 500; color: #98a2b3; }
+  .step-label.active { color: #101828; font-weight: 700; }
 "
 
 # ---------------------------------------------------------------------
@@ -379,8 +483,12 @@ ap_row_ui <- function(i) {
 # =======================================================================
 ui <- page_fluid(
   theme = app_theme,
+  title = "Multi-Assay Toolkit (MAT)",
   tags$head(
+    tags$link(rel = "icon", type = "image/svg+xml", href = "mat_hex.svg"),
+    tags$meta(name = "description", content = "Multi-Assay Toolkit (MAT): publish multi-assay eDNA metabarcoding data in FAIRe format as one Darwin Core Archive for OBIS and GBIF."),
     tags$style(HTML(app_css)),
+    tags$style(HTML(about_css)),
     # Shiny's own fileInput ships an INLINE style with !important
     # (position: absolute !important; top: -99999px !important) to
     # hide the native <input type=file> off-screen. Inline !important
@@ -411,6 +519,9 @@ ui <- page_fluid(
         document.querySelectorAll('input[type=file]').forEach(fixFileInputPosition);
       });
 
+      // Home/About buttons switch tabs; start the new tab at the top.
+      Shiny.addCustomMessageHandler('scroll_top', function(msg) { window.scrollTo(0, 0); });
+
       // Step 2: grey out Continue (and show the hint) while an answer box has
       // unchecked text. Retries briefly because the message can arrive in the
       // same flush that (re)creates the buttons.
@@ -427,116 +538,16 @@ ui <- page_fluid(
     "))
   ),
 
-  div(class = "ocean-bg-layer", HTML('
-    <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <defs>
-        <linearGradient id="oceanBgGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#0d4d78"/>
-          <stop offset="45%" stop-color="#0a3d62"/>
-          <stop offset="100%" stop-color="#031225"/>
-        </linearGradient>
-        <radialGradient id="sunGlow" cx="50%" cy="0%" r="75%">
-          <stop offset="0%" stop-color="#eaffff" stop-opacity="0.55"/>
-          <stop offset="35%" stop-color="#bdeef2" stop-opacity="0.18"/>
-          <stop offset="100%" stop-color="#bdeef2" stop-opacity="0"/>
-        </radialGradient>
-        <linearGradient id="rayGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#ffffff" stop-opacity="0.5"/>
-          <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-        </linearGradient>
-        <linearGradient id="sandGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#1a6a7a" stop-opacity="0"/>
-          <stop offset="100%" stop-color="#123a4a" stop-opacity="0.9"/>
-        </linearGradient>
-        <linearGradient id="weedGrad" x1="0" y1="1" x2="0" y2="0">
-          <stop offset="0%" stop-color="#0d5f6e"/>
-          <stop offset="100%" stop-color="#1fc9c9"/>
-        </linearGradient>
-        <filter id="softBlur"><feGaussianBlur stdDeviation="14"/></filter>
-      </defs>
-
-      <rect width="1440" height="900" fill="url(#oceanBgGrad)"/>
-      <ellipse cx="720" cy="-80" rx="900" ry="420" fill="url(#sunGlow)"/>
-
-      <!-- God-rays filtering down from the surface, softened -->
-      <g filter="url(#softBlur)">
-        <polygon points="120,-20 300,-20 20,900 -160,900" fill="url(#rayGrad)"/>
-        <polygon points="480,-20 610,-20 340,900 160,900" fill="url(#rayGrad)"/>
-        <polygon points="860,-20 1040,-20 1220,900 980,900" fill="url(#rayGrad)"/>
-        <polygon points="1180,-20 1310,-20 1440,780 1220,900" fill="url(#rayGrad)"/>
-      </g>
-
-      <!-- Bubbles, varied sizes with a small offset highlight for depth -->
-      <g fill="#ffffff">
-        <circle cx="120" cy="140" r="7" opacity="0.5"/><circle cx="117" cy="137" r="2" opacity="0.7"/>
-        <circle cx="150" cy="210" r="4" opacity="0.4"/>
-        <circle cx="365" cy="95" r="11" opacity="0.45"/><circle cx="361" cy="91" r="3" opacity="0.7"/>
-        <circle cx="700" cy="265" r="6" opacity="0.4"/>
-        <circle cx="985" cy="125" r="9" opacity="0.5"/><circle cx="982" cy="122" r="2.5" opacity="0.7"/>
-        <circle cx="1035" cy="195" r="5" opacity="0.35"/>
-        <circle cx="1305" cy="305" r="8" opacity="0.45"/><circle cx="1301" cy="301" r="2" opacity="0.7"/>
-        <circle cx="1365" cy="155" r="5" opacity="0.4"/>
-        <circle cx="245" cy="490" r="6" opacity="0.3"/>
-        <circle cx="865" cy="570" r="7" opacity="0.3"/>
-        <circle cx="55" cy="620" r="5" opacity="0.35"/>
-        <circle cx="1400" cy="640" r="6" opacity="0.3"/>
-        <circle cx="600" cy="700" r="4" opacity="0.25"/>
-      </g>
-
-      <!-- Fish, a few sizes/depths for a sense of life -->
-      <g opacity="0.55" fill="#8fd6dc">
-        <path d="M300,340 Q332,320 368,334 Q354,340 354,347 Q354,354 368,360 Q332,374 300,352 Z"/>
-      </g>
-      <g opacity="0.4" fill="#6fc3cf">
-        <path d="M1120,420 Q1090,403 1055,416 Q1068,420 1068,427 Q1068,434 1055,439 Q1090,451 1120,433 Z"/>
-      </g>
-      <g opacity="0.35" fill="#8fd6dc">
-        <path d="M560,640 Q582,626 608,637 Q598,640 598,645 Q598,650 608,654 Q582,664 560,648 Z"/>
-      </g>
-      <g opacity="0.3" fill="#6fc3cf">
-        <path d="M1220,180 Q1240,168 1262,177 Q1254,180 1254,184 Q1254,188 1262,192 Q1240,200 1220,186 Z"/>
-      </g>
-
-      <!-- Sandy seafloor with rising seaweed and rounded coral/rock forms -->
-      <path d="M0,900 L0,780 Q180,740 400,770 Q680,808 960,772 Q1220,740 1440,782 L1440,900 Z" fill="url(#sandGrad)"/>
-      <ellipse cx="230" cy="860" rx="70" ry="22" fill="#123a4a" opacity="0.55"/>
-      <ellipse cx="1180" cy="870" rx="90" ry="24" fill="#123a4a" opacity="0.55"/>
-
-      <path d="M90,900 C76,818 118,776 100,694 C84,622 126,580 106,506" stroke="url(#weedGrad)" stroke-width="10" fill="none" opacity="0.55" stroke-linecap="round"/>
-      <path d="M150,900 C166,828 130,786 148,714 C164,652 128,610 146,548" stroke="url(#weedGrad)" stroke-width="7" fill="none" opacity="0.45" stroke-linecap="round"/>
-      <path d="M1290,900 C1276,806 1322,764 1302,682 C1286,618 1326,576 1306,514" stroke="url(#weedGrad)" stroke-width="10" fill="none" opacity="0.55" stroke-linecap="round"/>
-      <path d="M1360,900 C1378,836 1342,794 1362,732 C1378,682 1348,646 1364,600" stroke="url(#weedGrad)" stroke-width="6" fill="none" opacity="0.4" stroke-linecap="round"/>
-    </svg>
-  ')),
+  # Optional background picture, shown very faintly behind the page.
+  # www/page_bg.jpg is gitignored (not ours to redistribute), so a fork
+  # simply gets the plain background.
+  if (file.exists("www/page_bg.jpg")) div(class = "page-photo", `aria-hidden` = "true"),
 
   div(class = "app-header",
-      # Decorative bubbles - purely atmospheric, kept subtle (low opacity)
-      # so they read as texture rather than clutter.
-      div(class = "header-bubble", style = "width:70px; height:70px; top:-20px; right:12%;"),
-      div(class = "header-bubble", style = "width:26px; height:26px; top:20px; right:28%;"),
-      div(class = "header-bubble", style = "width:14px; height:14px; top:52px; right:8%;"),
-      div(class = "header-bubble", style = "width:40px; height:40px; bottom:-10px; left:38%;"),
-
-      div(class = "brand-mark", HTML('
-        <svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Multi-Assay Toolkit (MAT) logo">
-          <defs>
-            <linearGradient id="f2oLogoGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#2a78d6"/>
-              <stop offset="100%" stop-color="#14a3a3"/>
-            </linearGradient>
-          </defs>
-          <rect width="44" height="44" rx="12" fill="url(#f2oLogoGrad)"/>
-          <path d="M9 13 Q17 5 25 13" stroke="#ffffff" stroke-width="1.6" fill="none" opacity="0.85" stroke-linecap="round"/>
-          <circle cx="9" cy="13" r="2" fill="#ffffff"/>
-          <circle cx="17" cy="8.3" r="2" fill="#ffffff"/>
-          <circle cx="25" cy="13" r="2" fill="#ffffff"/>
-          <path d="M6 25 Q12 19, 18 25 T30 25 T42 25" stroke="#ffffff" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.92"/>
-          <path d="M4 32 Q10 26, 16 32 T28 32 T40 32" stroke="#ffffff" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0.55"/>
-        </svg>
-      ')),
+      div(class = "brand-mark", tags$img(src = "mat_hex.svg", height = "46", alt = "Multi-Assay Toolkit (MAT) logo")),
       div(
         h1("Multi-Assay Toolkit (MAT)"),
-        p("Convert FAIRe eDNA metabarcoding data into an OBIS-ready Darwin Core Archive")
+        p("Publish multi-assay eDNA metabarcoding data as one Darwin Core Archive for OBIS and GBIF")
       ),
       div(class = "header-spacer"),
       conditionalPanel(
@@ -552,24 +563,22 @@ ui <- page_fluid(
       conditionalPanel(
         condition = "output.is_guest == true",
         div(class = "d-flex align-items-center gap-2",
-            span(style = "font-size:0.78rem; color:#cfe9ec; opacity:0.9;", bsicons::bs_icon("person"), " Browsing as guest"),
-            actionButton("guest_login_btn", "Log in", class = "btn btn-outline-light btn-sm restart-btn"),
+            conditionalPanel(
+              condition = "output.accounts_enabled == true",
+              div(class = "d-flex align-items-center gap-2",
+                  span(style = "font-size:0.78rem; color:#cfe9ec; opacity:0.9;", bsicons::bs_icon("person"), " Browsing without an account"),
+                  actionButton("guest_login_btn", "Log in", class = "btn btn-outline-light btn-sm restart-btn"))
+            ),
+            conditionalPanel(
+              condition = "output.accounts_enabled != true",
+              span(style = "font-size:0.78rem; color:#cfe9ec; opacity:0.9;",
+                   title = "No storage or accounts connected. Archives are built in this session and downloaded to your computer.",
+                   bsicons::bs_icon("laptop"), " Local mode")
+            ),
             actionButton("restart_app", tagList(bsicons::bs_icon("arrow-counterclockwise"), " Restart"),
                          class = "btn btn-outline-light btn-sm restart-btn")
         )
-      ),
-
-      # Wave divider - blends the ocean-gradient header into the page's
-      # light background below, a common "ocean site" section transition.
-      # Fill is a light blue-grey (matching the body's #f9f9f7 blended
-      # with the underwater .ocean-bg-layer showing through it), NOT
-      # plain #f9f9f7 - that flat white stood out as a visible seam
-      # against the (now slightly tinted) area right around it.
-      div(class = "header-wave", HTML('
-        <svg viewBox="0 0 1440 60" preserveAspectRatio="none" style="width:100%; height:100%; display:block;">
-          <path d="M0,30 C240,60 480,0 720,18 C960,36 1200,8 1440,26 L1440,60 L0,60 Z" fill="#e8edf0"></path>
-        </svg>
-      '))
+      )
   ),
 
   # Top-level tab bar: "Generate" (the step wizard), "Draft" (saved
@@ -593,6 +602,8 @@ ui <- page_fluid(
     condition = "output.app_visible == true",
   navset_tab(
     id = "main_tab",
+    selected = "Home",
+    nav_panel("Home", home_page_ui()),
     nav_panel(
       "Generate",
       div(uiOutput("stepper_ui")),
@@ -607,7 +618,7 @@ ui <- page_fluid(
               card_header(bsicons::bs_icon("folder2-open", class = "section-icon"), "Project"),
               card_body(
                 textInput("project_id", "Project ID", value = "", placeholder = "e.g. OcOm_2408"),
-                p(class = "muted", "Used as a label only at this stage - not yet embedded into output filenames.")
+                p(class = "muted", "Names saved drafts, the published archive and the report (e.g. OcOm_2408 -> OcOm_2408_CoreVersion.zip).")
               )
             ),
             card(
@@ -653,6 +664,7 @@ ui <- page_fluid(
       "Publish",
       div(class = "content-wrap", uiOutput("publish_tab_body"))
     ),
+    nav_panel("About", about_page_ui()),
     # Hidden/shown by an observer (see server) based on whether the logged-in
     # user is an admin - starts hidden (nobody is logged in yet at page
     # load). The uiOutput itself ALSO checks is_admin() server-side before
@@ -669,16 +681,29 @@ ui <- page_fluid(
   ),
 
   div(class = "app-footer",
+      # Organisation logo: www/partner_logo.(png|jpg|jpeg|svg) is gitignored,
+      # so a fork doesn't receive it - they get a placeholder instead and can
+      # drop in their own file under that name.
+      local({
+        logo <- list.files("www", pattern = "^partner_logo\\.(png|jpe?g|svg)$")
+        if (length(logo) > 0) {
+          div(class = "footer-partner", tags$img(src = logo[1], alt = "Partner organisations"))
+        } else {
+          div(class = "footer-partner placeholder",
+              title = "Add your organisation's logo as www/partner_logo.png (or .jpg / .svg)",
+              bsicons::bs_icon("image"), " Your organisation's logo")
+        }
+      }),
       div(class = "footer-credit", "Designed and developed by the Minderoo OceanOmics Centre at UWA team"),
       div(class = "footer-links",
           tags$a(href = "https://www.uwa.edu.au/oceans-institute/partnerships/minderoo-oceanomics-centre-at-uwa",
                  target = "_blank", rel = "noopener noreferrer", "Minderoo OceanOmics Centre at UWA"),
           span(class = "footer-sep", "|"),
-          tags$a(href = "https://github.com/Minderoo-OceanOmics-Centre-UWA/faire2obis",
-                 target = "_blank", rel = "noopener noreferrer", "Multi-Assay Toolkit (MAT) on GitHub")
+          tags$a(href = MAT_REPO_URL, target = "_blank", rel = "noopener noreferrer", "Source code on GitHub")
       ),
       div(class = "footer-copyright",
-          paste0("© ", format(Sys.Date(), "%Y"), " Minderoo OceanOmics Centre at UWA. All rights reserved."))
+          paste0("Multi-Assay Toolkit (MAT) v", MAT_VERSION, " · © ", format(Sys.Date(), "%Y"),
+                 " Minderoo OceanOmics Centre at UWA · Open source under the MIT licence"))
   )
 )
 
@@ -711,6 +736,10 @@ server <- function(input, output, session) {
     worms_result       = NULL,   # match_worms() output
     taxonomy_rechecks  = 0,      # times "Apply & re-check" has been run on the current build
     name_corrections   = character(),  # user-entered corrections for unmatched names, this session
+    use_accepted_names = character(),  # synonyms the user switched to WoRMS' accepted name
+    misspellings_seen  = character(),  # WoRMS-flagged misspellings already defaulted to the correct spelling
+    unknown_names      = character(),  # unmatched names recorded as "Biota incertae sedis"
+    keep_names         = character(),  # unmatched names kept as-is, not yet in WoRMS
     manual_aphia_overrides = c(),      # user-chosen AphiaIDs for ambiguous names, this session
     excluded_taxa   = character(),  # matched names the user excluded from the archive (likely contamination), this session
     qc_result      = NULL,  # run_qc_checks() output
@@ -731,6 +760,21 @@ server <- function(input, output, session) {
   # a guest sees the app; anyone else sees only the login/signup screen.
   output$app_visible <- reactive({ isTRUE(rv$logged_in) || isTRUE(rv$guest_mode) })
   outputOptions(output, "app_visible", suspendWhenHidden = FALSE)
+
+  # Local mode (no S3 bucket or no email configured, e.g. a fresh clone):
+  # there are no accounts, so skip the login screen and go straight in.
+  if (!accounts_enabled()) rv$guest_mode <- TRUE
+  output$accounts_enabled <- reactive({ accounts_enabled() })
+  outputOptions(output, "accounts_enabled", suspendWhenHidden = FALSE)
+
+  # Home / About navigation buttons (R/about_page.R)
+  go_to_tab <- function(tab) {
+    bslib::nav_select("main_tab", tab, session = session)
+    session$sendCustomMessage("scroll_top", list())
+  }
+  observeEvent(input$home_go_generate,  go_to_tab("Generate"))
+  observeEvent(input$about_go_generate, go_to_tab("Generate"))
+  observeEvent(input$home_go_about,     go_to_tab("About"))
 
   observeEvent(input$auth_continue_guest, { rv$guest_mode <- TRUE })
   # From the header's "Log in" button while browsing as a guest - returns to
@@ -792,11 +836,12 @@ server <- function(input, output, session) {
               actionLink("auth_goto_signup", paste0("Create an account (@", allowed_email_domain(), " only)"))),
             div(class = "auth-guest-box",
                 bsicons::bs_icon("person"), " ",
-                actionLink("auth_continue_guest", "Continue as a guest"), " - you can go through the whole process, ",
-                "but you'll need to log in to download, save, or publish the finished archive.")
+                actionLink("auth_continue_guest", "Continue without an account"), " - you can go through the whole process ",
+                "and download the finished archive. An account is only needed to save drafts or publish to this team's storage.")
           ),
           signup = tagList(
-            p(class = "muted", paste0("Only @", allowed_email_domain(), " email addresses can sign up - this tool is for internal use.")),
+            p(class = "muted", paste0("Only @", allowed_email_domain(), " email addresses can sign up. ",
+                                      "Accounts give access to this team's saved and published archives, so they are limited to its own staff.")),
             textInput("auth_signup_email", "Email", placeholder = paste0("you@", allowed_email_domain())),
             passwordInput("auth_signup_password", "Password", placeholder = "At least 8 characters"),
             passwordInput("auth_signup_password2", "Confirm password"),
@@ -1591,6 +1636,10 @@ server <- function(input, output, session) {
       rv$worms_result <- NULL
       rv$taxonomy_rechecks <- 0
       rv$excluded_taxa <- character()
+      rv$use_accepted_names <- character()
+      rv$misspellings_seen <- character()
+      rv$unknown_names <- character()
+      rv$keep_names <- character()
       rv$qc_result     <- NULL
       showNotification("Build complete.", type = "message")
     }
@@ -1691,6 +1740,15 @@ server <- function(input, output, session) {
     })
     if (!is.null(result)) {
       rv$worms_result <- result
+      # A name WoRMS itself flags as a misspelling starts on the correct
+      # spelling; only names seen for the first time, so an "Original" choice
+      # survives a re-check.
+      syn <- result$synonym_df
+      if (!is.null(syn) && nrow(syn) > 0) {
+        new_misspelt <- setdiff(syn$queriedName[grepl("^misspelling", syn$worms_status, ignore.case = TRUE)], rv$misspellings_seen)
+        rv$use_accepted_names <- union(rv$use_accepted_names, new_misspelt)
+        rv$misspellings_seen <- union(rv$misspellings_seen, new_misspelt)
+      }
       # Any change to taxonomy matching invalidates a previously-run QC
       # result - clear it so Step 5 re-checks fresh instead of silently
       # showing a stale pass/fail from before this change.
@@ -1705,16 +1763,44 @@ server <- function(input, output, session) {
   # the DNA Derived Data tables. Everything downstream (QC, mapping check,
   # report, archive zip) reads these, never the unfiltered tables. Nothing
   # is excluded unless the user clicks Exclude.
+  # Names WoRMS couldn't match, split into the Step 4 groups:
+  #  misspelt_open - WoRMS's fuzzy search offered a spelling; still waiting for a choice
+  #  keep          - published as identified, no WoRMS ID (names with no suggestion
+  #                  land here automatically: likely taxa not yet in WoRMS)
+  #  unknown       - recorded as Biota incertae sedis
+  name_groups <- reactive({
+    r <- rv$worms_result
+    req(r)
+    suggested <- names(r$fuzzy_candidates %||% as.list(r$suggested_corrections))
+    misspelt  <- intersect(r$unmatched_names, suggested)
+    no_match  <- setdiff(r$unmatched_names, suggested)
+    unknown   <- intersect(rv$unknown_names, r$unmatched_names)
+    keep      <- union(intersect(rv$keep_names, misspelt), setdiff(no_match, unknown))
+    keep      <- setdiff(keep, unknown)
+    list(misspelt_open = setdiff(misspelt, c(keep, unknown)), keep = keep, unknown = unknown,
+         not_in_worms = c(keep, unknown), suggested = misspelt)
+  })
+  # The reviewer's name choices from Step 4 (switch a synonym to WoRMS'
+  # accepted name; keep or record as unknown a name WoRMS doesn't have).
+  named_occurrence <- reactive({
+    req(rv$worms_result)
+    g <- name_groups()
+    apply_name_choices(rv$worms_result, rv$use_accepted_names, g$unknown, g$keep)
+  })
   excluded_name_ids <- reactive({
     r <- rv$worms_result
     if (is.null(r) || length(rv$excluded_taxa) == 0 || nrow(r$matched_df) == 0) return(character())
-    ids <- r$matched_df$scientificNameID[r$matched_df$queriedName %in% rv$excluded_taxa]
+    hit <- r$matched_df$queriedName %in% rv$excluded_taxa
+    ids <- r$matched_df$scientificNameID[hit]
+    # A name switched to its accepted name now carries the accepted ID.
+    switched <- hit & r$matched_df$queriedName %in% rv$use_accepted_names & !is.na(r$matched_df$worms_valid_AphiaID)
+    ids <- c(ids, paste0("urn:lsid:marinespecies.org:taxname:", r$matched_df$worms_valid_AphiaID[switched]))
     unique(ids[!is.na(ids)])
   })
   final_occurrence <- reactive({
     req(rv$worms_result)
     ids <- excluded_name_ids()
-    occ <- rv$worms_result$occurrence_tables
+    occ <- named_occurrence()
     if (length(ids) == 0) return(occ)
     lapply(occ, function(o) o[!(o$scientificNameID %in% ids), , drop = FALSE])
   })
@@ -1738,6 +1824,37 @@ server <- function(input, output, session) {
            if (n_taxa == 1) "1 taxon was" else paste(n_taxa, "taxa were"), " excluded from the published occurrences as likely contamination or misidentification (",
            format(n_removed, big.mark = ","), " occurrence records removed): ",
            paste(sort(rv$excluded_taxa), collapse = ", "), ".")
+  })
+  # Same idea for the Step 4 name choices: what was renamed or kept as unknown.
+  name_choice_method_note <- reactive({
+    r <- rv$worms_result
+    if (is.null(r)) return(NULL)
+    notes <- character()
+    syn <- r$synonym_df
+    if (length(rv$use_accepted_names) > 0 && !is.null(syn) && nrow(syn) > 0) {
+      s <- syn[syn$queriedName %in% rv$use_accepted_names, ]
+      typo <- grepl("^misspelling", s$worms_status, ignore.case = TRUE)
+      if (any(typo)) notes <- c(notes, paste0(
+        "Names that WoRMS spells differently (usually a Latin ending changed to agree with the genus) were updated to the WoRMS spelling: ",
+        paste0(s$queriedName[typo], " -> ", s$worms_valid_name[typo], collapse = "; "),
+        ". The original identification is kept in verbatimIdentification."))
+      if (any(!typo)) notes <- c(notes, paste0(
+        "Names listed by WoRMS under a newer accepted name were updated to that name: ",
+        paste0(s$queriedName[!typo], " -> ", s$worms_valid_name[!typo], collapse = "; "),
+        ". The original identification is kept in verbatimIdentification."))
+    }
+    g <- name_groups()
+    kept <- g$keep
+    if (length(kept) > 0) notes <- c(notes, paste0(
+      "Names not yet registered in WoRMS are published as identified, with scientificNameID left empty and the reference-database ",
+      "taxon ID in taxonConceptID, following the OBIS guidance for DNA-derived data: ",
+      paste(sort(kept), collapse = ", "), "."))
+    unknown <- g$unknown
+    if (length(unknown) > 0) notes <- c(notes, paste0(
+      "Identifications judged unreliable and not in WoRMS are recorded as 'Biota incertae sedis' (urn:lsid:marinespecies.org:taxname:12), ",
+      "with the original name kept in verbatimIdentification and identificationRemarks: ",
+      paste(sort(unknown), collapse = ", "), "."))
+    if (length(notes) == 0) NULL else notes
   })
 
   exclude_button <- function(nm, size = "") {
@@ -1808,7 +1925,17 @@ server <- function(input, output, session) {
         card(
           card_header(bsicons::bs_icon("search", class = "section-icon"), "Match scientific names against WoRMS"),
           card_body(
-            p(class = "muted", paste0(n_names, " unique scientific name(s) will be matched against the World Register of Marine Species. Ambiguous or unmatched names will be shown here for you to resolve - nothing is guessed.")),
+            p(class = "muted", paste0(n_names, " unique scientific name(s) will be matched against the World Register of Marine Species (WoRMS).")),
+            div(class = "alert alert-info small",
+                strong("Why this step? "), "OBIS uses WoRMS as its only taxonomic reference, and runs its own name checks when your dataset is published. ",
+                "This step shows you, before publishing, what those checks would flag:",
+                tags$ul(class = "mb-2 mt-1",
+                  tags$li("spelling variants and outdated names (synonyms)"),
+                  tags$li("names WoRMS doesn't have yet"),
+                  tags$li("names shared by different organisms, such as a fish and a plant"),
+                  tags$li("taxa WoRMS doesn't record as marine")),
+                "For each one you decide: fix it here, or keep the original and let OBIS handle it. Some things only you can decide - OBIS can't tell which organism a shared name means. ",
+                "Nothing changes without your choice, and the original name always stays in ", tags$code("verbatimIdentification"), "."),
             actionButton("run_worms", tagList(bsicons::bs_icon("play-fill"), " Run WoRMS matching"), class = "btn-primary")
           )
         ),
@@ -1818,7 +1945,16 @@ server <- function(input, output, session) {
 
     r <- rv$worms_result
     ambiguous_names <- unique(r$ambiguous_df$queriedName)
-    unmatched_names <- r$unmatched_names
+    # Only open misspellings are issues; names not in WoRMS are listed in
+    # their own section. Isolated so switching keep/unknown there doesn't
+    # redraw (and reset) the choices above - step4_refresh() redraws on purpose.
+    step4_refresh()
+    g <- isolate(name_groups())
+    unmatched_names <- g$misspelt_open
+    n_not_in_worms <- length(g$not_in_worms)
+    syn_status <- if (is.null(r$synonym_df) || nrow(r$synonym_df) == 0) character() else r$synonym_df$worms_status
+    n_known_misspellings <- sum(is_misspelling(syn_status))
+    n_synonyms <- length(syn_status) - n_known_misspellings
     n_matched <- length(unique(r$matched_df$queriedName))
     n_auto <- length(unique(r$resolved_ambiguous_df$queriedName))
     n_issues <- length(ambiguous_names) + length(unmatched_names)
@@ -1834,7 +1970,9 @@ server <- function(input, output, session) {
               stat_box(n_matched, "Matched"),
               stat_box(n_auto, "Auto-resolved"),
               stat_box(length(ambiguous_names), "Need your review"),
-              stat_box(length(unmatched_names), "Unmatched"),
+              stat_box(n_known_misspellings + length(unmatched_names), "Spelling variants"),
+              stat_box(n_synonyms, "Newer name in WoRMS"),
+              stat_box(n_not_in_worms, "Not yet in WoRMS"),
               stat_box(nrow(r$non_marine_df), "Not marine in WoRMS")
           )
         )
@@ -1875,29 +2013,112 @@ server <- function(input, output, session) {
         )
       },
 
-      if (length(unmatched_names) > 0) {
+      if (n_known_misspellings > 0 || length(unmatched_names) > 0) {
         card(
-          class = "issue-card warning",
-          card_header(bsicons::bs_icon("exclamation-circle", class = "section-icon"), "Unmatched names - try a correction"),
+          class = if (length(unmatched_names) > 0) "issue-card warning",
+          card_header(bsicons::bs_icon("spellcheck", class = "section-icon"), "Spelling variants"),
           card_body(
-            p(class = "muted", "No WoRMS record found at all. Where possible, a correction is pre-filled below using WoRMS' own fuzzy-match (typo-tolerant) service, followed through to the current accepted name - review it, it's a suggestion, not a fact. Otherwise check for a contaminated name (voucher/accession code attached to a genus), or leave it blank to publish without a scientificNameID."),
+            if (n_known_misspellings > 0) tagList(
+              h6(class = "fw-bold mb-1", "Names WoRMS spells differently"),
+              p(class = "muted", "Same species, same name - WoRMS uses a different spelling. Usually it's the Latin ending: a species name must agree in gender with its genus, ",
+                "so the ending changes when the genus is re-assessed (", tags$em("heptacanthus"), " / ", tags$em("heptacantha"), "). ",
+                "WoRMS files the older form under the technical status \"misspelling\"; it isn't a mistake in your data, just an older spelling."),
+              p(class = "muted", "These are set to the WoRMS spelling, the form OBIS uses. Switch a row to ", strong("Original spelling"), " to keep the spelling from your data. ",
+                "Your original stays in ", tags$code("verbatimIdentification"), " and a change is noted in ", tags$code("identificationRemarks"), "."),
+              uiOutput("misspelling_table")
+            ),
+            if (n_known_misspellings > 0 && length(unmatched_names) > 0) hr(),
+            if (length(unmatched_names) > 0) tagList(
+            h6(class = "fw-bold mb-1", "Close spellings found by WoRMS's search"),
+            p(class = "muted", "WoRMS has no record with these names as written, but its typo-tolerant search found one or more close names. Compare them, choose an option, then click ", strong("Apply & re-check"), "."),
+            tags$ul(class = "muted small mb-3",
+              tags$li(strong("Use WoRMS's spelling"), " - the name is corrected and matched. Your original stays in ", tags$code("verbatimIdentification"), "."),
+              tags$li(strong("Keep original name"), " - if the original spelling is right and the taxon just isn't in WoRMS yet. It moves to ", em("Not yet in WoRMS"), " below."),
+              tags$li(strong("Try another name"), " - type a different name to look up."),
+              tags$li(strong("Record as unknown"), " - published as ", tags$em("Biota incertae sedis"), ", for a name you doubt.")),
             tagList(lapply(unmatched_names, function(nm) {
-              suggestion <- r$suggested_corrections[[nm]]
-              has_suggestion <- !is.null(suggestion) && !is.na(suggestion)
+              candidates <- r$fuzzy_candidates[[nm]] %||% unname(r$suggested_corrections[nm])
+              sid <- safe_id(nm)
+              choice_names <- c(
+                lapply(candidates, function(cand) tagList("Use WoRMS's spelling: ", tags$em(strong(cand)))),
+                list("Keep original name", "Try another name",
+                     tagList("Record as unknown (", tags$em("Biota incertae sedis"), ")")))
+              choice_values <- c(paste0("s", seq_along(candidates)), "keep", "other", "unknown")
               div(class = "assay-row",
-                  div(class = "d-flex align-items-center gap-2",
-                      strong(nm),
-                      taxon_check_button(nm, paste0("correct_name_", safe_id(nm))),
-                      if (has_suggestion) {
-                        span(class = "badge bg-primary-subtle text-primary-emphasis",
-                             bsicons::bs_icon("stars"), " Suggested via WoRMS fuzzy match - please verify")
-                      }
-                  ),
-                  textInput(paste0("correct_name_", safe_id(nm)), NULL,
-                            value = if (has_suggestion) suggestion else "",
-                            placeholder = "Corrected name to try instead (leave blank to skip)")
+                  div(class = "d-flex align-items-center gap-2 mb-2 flex-wrap",
+                      span(class = "muted", "Original name:"), strong(tags$em(nm)),
+                      bsicons::bs_icon("arrow-right", class = "muted"),
+                      span(class = "muted", if (length(candidates) == 1) "WoRMS:" else paste0("WoRMS (", length(candidates), " close names):")),
+                      strong(tags$em(paste(candidates, collapse = " / "))),
+                      taxon_check_button(nm, paste0("correct_name_", sid))),
+                  radioButtons(paste0("unmatched_choice_", sid), NULL,
+                               choiceNames = choice_names, choiceValues = choice_values,
+                               selected = if (length(candidates) == 1) "s1" else character(0)),
+                  conditionalPanel(
+                    condition = sprintf("input['unmatched_choice_%s'] == 'other'", sid),
+                    textInput(paste0("correct_name_", sid), NULL, placeholder = "Corrected name to look up in WoRMS")
+                  )
               )
             }))
+            )
+          )
+        )
+      },
+
+      if (n_auto > 0 && any(r$resolved_ambiguous_df$resolution == "single_accepted")) {
+        auto <- r$resolved_ambiguous_df
+        auto <- auto[auto$resolution == "single_accepted", , drop = FALSE]
+        card(
+          card_header(bsicons::bs_icon("check2-all", class = "section-icon"), "Auto-resolved names"),
+          card_body(
+            p(class = "muted", "WoRMS returned more than one record for each of these names, but only one of them is ", strong("accepted"),
+              "; the others are old or duplicate entries for the same name (unaccepted, nomen dubium and similar). MAT used the accepted record - WoRMS's own choice, not a guess. ",
+              "Names with two or more accepted records (different organisms sharing a name) are never auto-resolved; they appear under Ambiguous names."),
+            tags$table(class = "table align-middle mb-0",
+              tags$thead(tags$tr(tags$th("Name"), tags$th("Record used"), tags$th("Other WoRMS records for this name"), tags$th())),
+              tags$tbody(lapply(unique(auto$queriedName), function(nm) {
+                recs <- auto[auto$queriedName == nm, , drop = FALSE]
+                used <- recs[recs$AphiaID == recs$chosenAphiaID[1], , drop = FALSE]
+                others <- recs[recs$AphiaID != recs$chosenAphiaID[1], , drop = FALSE]
+                tags$tr(
+                  tags$td(tags$em(nm)),
+                  tags$td(tags$a(href = worms_taxon_url(recs$chosenAphiaID[1]), target = "_blank", rel = "noopener noreferrer",
+                                 paste0("AphiaID ", recs$chosenAphiaID[1], " ↗")),
+                          span(class = "muted small", paste0(" (", used$rank[1], ", accepted)"))),
+                  tags$td(class = "small", lapply(seq_len(nrow(others)), function(i) div(
+                    tags$a(href = worms_taxon_url(others$AphiaID[i]), target = "_blank", rel = "noopener noreferrer", others$AphiaID[i]),
+                    span(class = "muted", paste0(" ", others$status[i], ", ", others$rank[i]))))),
+                  tags$td(class = "text-end", taxon_check_button(nm))
+                )
+              }))
+            )
+          )
+        )
+      },
+
+      if (n_synonyms > 0) {
+        card(
+          card_header(bsicons::bs_icon("arrow-left-right", class = "section-icon"), "Names WoRMS lists under a newer name"),
+          card_body(
+            p(class = "muted", "WoRMS recognises these names but now uses a different accepted name for the same taxon (for example after a genus change). Choose, for each one, whether to publish the WoRMS accepted name or the original name."),
+            p(class = "muted small", strong("Keeping the original name is valid: "), "it stays linked to its WoRMS record, and OBIS shows the records under the accepted name. Switching makes the archive use the current name directly. Either way your original name is kept in ",
+              tags$code("verbatimIdentification"), ", and a switch is noted in ", tags$code("identificationRemarks"), "."),
+            uiOutput("synonym_table")
+          )
+        )
+      },
+
+      if (n_not_in_worms > 0) {
+        card(
+          card_header(bsicons::bs_icon("stars", class = "section-icon"), "Not yet in WoRMS - possibly newly detected taxa"),
+          card_body(
+            p(class = "muted", "WoRMS has no record of these names and no close spelling. eDNA often detects taxa that WoRMS hasn't registered yet, including newly described species. ",
+              strong("Nothing to do here"), " unless a name looks wrong."),
+            div(class = "alert alert-info py-2 small",
+                "They are published as identified: ", tags$code("scientificNameID"), " left empty, the NCBI ID in ", tags$code("taxonConceptID"),
+                ", and the original name in ", tags$code("verbatimIdentification"), ". ",
+                strong("OBIS may treat them as unknown"), " until WoRMS registers the name - at most it places them under a higher rank it can find. Rebuild the archive once WoRMS has them."),
+            uiOutput("not_in_worms_table")
           )
         )
       },
@@ -2022,22 +2243,131 @@ server <- function(input, output, session) {
     )
   })
 
+  # Names WoRMS lists under a newer accepted name: one row per name, with a
+  # "WoRMS name / Original name" switch. Its own output so a choice only
+  # redraws this table, not the inputs elsewhere in Step 4.
+  # WoRMS-registered misspellings (status "misspelling - ...") get their own
+  # table in the Misspellings section; every other synonym is a newer name.
+  is_misspelling <- function(status) grepl("^misspelling", status %||% "", ignore.case = TRUE)
+  syn_rows <- function(misspellings) {
+    syn <- rv$worms_result$synonym_df
+    if (is.null(syn) || nrow(syn) == 0) return(syn)
+    syn[is_misspelling(syn$worms_status) == misspellings, , drop = FALSE]
+  }
+  output$synonym_table <- renderUI(syn_table_ui(syn_rows(FALSE), misspellings = FALSE))
+  output$misspelling_table <- renderUI(syn_table_ui(syn_rows(TRUE), misspellings = TRUE))
+  syn_table_ui <- function(syn, misspellings) {
+    req(rv$worms_result, !is.null(syn), nrow(syn) > 0)
+    chosen <- rv$use_accepted_names
+    js <- "Shiny.setInputValue('syn_choice', {name: this.getAttribute('data-taxon'), accept: this.value === 'accepted'}, {priority: 'event'})"
+    option <- function(nm, value, label, checked) {
+      tags$label(class = "radio-inline",
+        tags$input(type = "radio", name = paste0("syn_", safe_id(nm)), value = value, `data-taxon` = nm,
+                   checked = if (checked) NA, onchange = js),
+        span(label))
+    }
+    tagList(
+      tags$table(class = "table align-middle",
+        tags$thead(tags$tr(tags$th("Original name"), tags$th(if (misspellings) "WoRMS spelling" else "WoRMS accepted name"),
+                           tags$th("WoRMS status"), tags$th("Publish as"), tags$th())),
+        tags$tbody(lapply(seq_len(nrow(syn)), function(i) {
+          row <- syn[i, ]
+          nm <- row$queriedName
+          use_new <- nm %in% chosen
+          tags$tr(
+            tags$td(tags$em(nm)),
+            tags$td(tags$em(row$worms_valid_name), if (!is.na(row$worms_valid_authority)) span(class = "muted small", " ", row$worms_valid_authority)),
+            tags$td(span(class = "badge bg-secondary-subtle text-secondary-emphasis", row$worms_status)),
+            tags$td(div(class = "choice-switch shiny-options-group",
+                        option(nm, "accepted", if (misspellings) "WoRMS spelling" else "WoRMS accepted name", use_new),
+                        option(nm, "keep", if (misspellings) "Original spelling" else "Original name", !use_new))),
+            tags$td(class = "text-end", taxon_check_button(row$worms_valid_name))
+          )
+        }))
+      ),
+      div(class = "muted small", {
+        n_switched <- length(intersect(chosen, syn$queriedName))
+        if (misspellings) paste0(n_switched, " of ", nrow(syn), " set to the WoRMS spelling.")
+        else if (n_switched == 0) "All original names are kept. Switch any row to publish the WoRMS accepted name instead."
+        else paste0(n_switched, " of ", nrow(syn), " switched to the WoRMS accepted name.")
+      })
+    )
+  }
+  # Switching a name changes the data, so stale QC results and eml.xml are cleared.
+  observeEvent(input$syn_choice, {
+    ch <- input$syn_choice
+    rv$use_accepted_names <- if (isTRUE(ch$accept)) union(rv$use_accepted_names, ch$name) else setdiff(rv$use_accepted_names, ch$name)
+    rv$qc_result <- NULL
+    rv$eml_xml <- NULL
+  })
+  # "Not yet in WoRMS" list: each name is kept as identified unless recorded
+  # as unknown; names that had a WoRMS spelling can go back to that section.
+  output$not_in_worms_table <- renderUI({
+    g <- name_groups()
+    req(length(g$not_in_worms) > 0)
+    act <- function(nm, mode, icon, label, title) {
+      tags$button(type = "button", class = "btn btn-sm btn-outline-secondary btn-white ms-1", `data-taxon` = nm, title = title,
+                  onclick = sprintf("Shiny.setInputValue('not_in_worms_set', {name: this.getAttribute('data-taxon'), mode: '%s'}, {priority: 'event'})", mode),
+                  bsicons::bs_icon(icon), " ", label)
+    }
+    tags$table(class = "table align-middle mb-0",
+      tags$thead(tags$tr(tags$th("Name"), tags$th("Published as"), tags$th())),
+      tags$tbody(lapply(g$not_in_worms, function(nm) {
+        is_unknown <- nm %in% g$unknown
+        tags$tr(
+          tags$td(tags$em(nm)),
+          tags$td(if (is_unknown) span(class = "badge bg-secondary-subtle text-secondary-emphasis", "Biota incertae sedis")
+                  else span(class = "badge bg-success-subtle text-success-emphasis", "As identified, no WoRMS ID")),
+          tags$td(class = "text-end text-nowrap",
+            taxon_check_button(nm),
+            if (is_unknown) act(nm, "keep", "arrow-counterclockwise", "Keep as identified", "Publish this name as identified")
+            else act(nm, "unknown", "question-circle", "Record as unknown", "Publish as Biota incertae sedis instead"),
+            if (nm %in% g$suggested) act(nm, "reopen", "spellcheck", "Back to spellings", "Choose a WoRMS spelling instead"))
+        )
+      }))
+    )
+  })
+  step4_refresh <- reactiveVal(0)
+  observeEvent(input$not_in_worms_set, {
+    nm <- input$not_in_worms_set$name
+    mode <- input$not_in_worms_set$mode
+    rv$unknown_names <- if (mode == "unknown") union(rv$unknown_names, nm) else setdiff(rv$unknown_names, nm)
+    if (mode == "keep") rv$keep_names <- union(rv$keep_names, nm)
+    if (mode %in% c("unknown", "reopen")) rv$keep_names <- setdiff(rv$keep_names, nm)
+    if (mode == "reopen") step4_refresh(step4_refresh() + 1)
+    rv$qc_result <- NULL
+    rv$eml_xml <- NULL
+  })
+
   observeEvent(input$apply_corrections, {
     req(rv$worms_result)
     r <- rv$worms_result
     ambiguous_names <- unique(r$ambiguous_df$queriedName)
-    unmatched_names <- r$unmatched_names
+    unmatched_names <- name_groups()$misspelt_open
 
+    needs_rerun <- FALSE
     for (nm in ambiguous_names) {
       val <- input[[paste0("choose_aphia_", safe_id(nm))]]
-      if (!is.null(val) && nzchar(val)) rv$manual_aphia_overrides[nm] <- as.integer(val)
+      if (!is.null(val) && nzchar(val)) { rv$manual_aphia_overrides[nm] <- as.integer(val); needs_rerun <- TRUE }
     }
     for (nm in unmatched_names) {
-      val <- input[[paste0("correct_name_", safe_id(nm))]]
-      if (!is.null(val) && nzchar(val)) rv$name_corrections[nm] <- val
+      choice <- input[[paste0("unmatched_choice_", safe_id(nm))]] %||% ""
+      candidates <- r$fuzzy_candidates[[nm]] %||% unname(r$suggested_corrections[nm])
+      if (grepl("^s[0-9]+$", choice)) {
+        rv$name_corrections[nm] <- candidates[as.integer(sub("^s", "", choice))]; needs_rerun <- TRUE
+      } else if (choice == "other") {
+        val <- trimws(input[[paste0("correct_name_", safe_id(nm))]] %||% "")
+        if (nzchar(val)) { rv$name_corrections[nm] <- val; needs_rerun <- TRUE }
+      } else if (choice == "keep") {
+        rv$keep_names <- union(rv$keep_names, nm)
+      } else if (choice == "unknown") {
+        rv$unknown_names <- union(rv$unknown_names, nm)
+      }
     }
     rv$taxonomy_rechecks <- rv$taxonomy_rechecks + 1
-    run_worms_matching()
+    # Only a new spelling or AphiaID needs WoRMS again; "keep" and
+    # "unknown" are applied locally.
+    if (needs_rerun) run_worms_matching() else { rv$qc_result <- NULL; rv$eml_xml <- NULL }
   })
 
   observeEvent(input$back_to_3_from_4, { rv$current_step <- 3 })
@@ -2045,17 +2375,14 @@ server <- function(input, output, session) {
     req(rv$worms_result)
     r <- rv$worms_result
     ambiguous_names <- unique(r$ambiguous_df$queriedName)
-    unmatched_names <- r$unmatched_names
+    unmatched_names <- name_groups()$misspelt_open
 
     if (length(ambiguous_names) > 0 || length(unmatched_names) > 0) {
       if (!isTRUE(input$allow_unresolved)) {
         showNotification("Apply your fixes and re-check first - some names still need attention.", type = "warning")
         return()
       }
-      pending <- c(
-        vapply(ambiguous_names, function(nm) nzchar(input[[paste0("choose_aphia_", safe_id(nm))]] %||% ""), logical(1)),
-        vapply(unmatched_names, function(nm) nzchar(input[[paste0("correct_name_", safe_id(nm))]] %||% ""), logical(1))
-      )
+      pending <- vapply(ambiguous_names, function(nm) nzchar(input[[paste0("choose_aphia_", safe_id(nm))]] %||% ""), logical(1))
       if (any(pending)) {
         showNotification("Some fixes are selected but not applied. Click Apply & re-check, or clear them to leave those names unresolved.", type = "warning", duration = 8)
         return()
@@ -2411,7 +2738,7 @@ server <- function(input, output, session) {
 
     keywords <- trimws(strsplit(input$eml_keywords %||% "", ",")[[1]])
     abstract_paragraphs <- strsplit(input$eml_abstract %||% "", "\n")[[1]]
-    method_steps <- c(strsplit(input$eml_methods %||% "", "\n")[[1]], exclusion_method_note())
+    method_steps <- c(strsplit(input$eml_methods %||% "", "\n")[[1]], name_choice_method_note(), exclusion_method_note())
 
     eml <- tryCatch(
       build_eml_xml(
@@ -2473,18 +2800,17 @@ server <- function(input, output, session) {
             if (!is.null(rv$eml_xml)) ", and eml.xml" else " (no eml.xml - go back to Step 6 to generate one)",
             " - ready to upload to an IPT."
           )),
-          if (isTRUE(rv$logged_in)) {
-            downloadButton("download_archive", "Download archive (.zip)", class = "btn-primary")
-          } else {
-            actionButton("download_archive_locked", tagList(bsicons::bs_icon("lock-fill"), " Download archive (.zip)"), class = "btn-primary")
-          }
+          # Open to everyone, account or not: the archive is built from the
+          # user's own files in this session, so nothing shared is exposed.
+          downloadButton("download_archive", "Download archive (.zip)", class = "btn-primary")
         )
       ),
       card(
         card_header(bsicons::bs_icon("cloud-upload", class = "section-icon"), "Save this archive"),
         card_body(
           if (!archive_history_enabled()) {
-            p(class = "muted", "Saving to Draft or Publish isn't available here (no AWS credentials set). You can still download the archive above.")
+            p(class = "muted", "Draft and Publish storage isn't connected. Download the archive above and keep it in a folder on your computer, ",
+              "or connect an AWS S3 bucket (see the README) to keep a shared record of drafts and published archives.")
           } else if (!isTRUE(rv$logged_in)) {
             tagList(
               p(class = "muted", "Log in to save this archive to Draft (or Publish, if you're a publisher)."),
@@ -2529,10 +2855,17 @@ server <- function(input, output, session) {
     n_matched <- length(unique(r$matched_df$queriedName))
     taxonomy_df <- tibble(
       Resolution = c("Matched directly", "Corrected by you, then matched", "Auto-resolved (single accepted WoRMS record)",
-                     "Manually resolved by you", "Still ambiguous", "Still unmatched"),
+                     "Manually resolved by you", "Updated to WoRMS spelling or accepted name", "Not yet in WoRMS (kept as identified)",
+                     "Recorded as Biota incertae sedis", "Still ambiguous", "Close spellings left open"),
       Names = c(n_matched - n_auto - n_manual, length(rv$name_corrections), n_auto, n_manual,
-                length(unique(r$ambiguous_df$queriedName)), length(r$unmatched_names))
+                length(intersect(rv$use_accepted_names, r$synonym_df$queriedName)),
+                length(name_groups()$keep),
+                length(name_groups()$unknown),
+                length(unique(r$ambiguous_df$queriedName)), length(name_groups()$misspelt_open))
     )
+    # The name-choice rows only appear when used, so the one-page report keeps its size.
+    taxonomy_df <- taxonomy_df[!(taxonomy_df$Resolution %in% c("Updated to WoRMS spelling or accepted name", "Not yet in WoRMS (kept as identified)",
+                                                               "Recorded as Biota incertae sedis") & taxonomy_df$Names == 0), ]
 
     m <- tryCatch(check_dwc_mapping(rv$build_result$event_core, final_occurrence(), final_dna()), error = function(e) NULL)
     mapping <- if (is.null(m)) NULL else list(ok = sum(m$status %in% c("ok", "expected")), total = nrow(m),
@@ -2631,7 +2964,6 @@ server <- function(input, output, session) {
   output$download_archive <- downloadHandler(
     filename = function() paste0("mat_archive_", format(Sys.Date(), "%Y%m%d"), ".zip"),
     content = function(file) {
-      req(rv$logged_in)  # belt-and-braces: the UI already hides this behind login for a guest
       req(rv$build_result, rv$worms_result)
       build_archive_zip(file)
     }
@@ -2754,7 +3086,10 @@ server <- function(input, output, session) {
 
   not_configured_card <- function(title) card(
     card_header(bsicons::bs_icon("cloud-slash", class = "section-icon"), title),
-    card_body(p(class = "muted", "Not configured for this deployment (no AWS credentials set) - archives generated here aren't saved anywhere permanent."))
+    card_body(
+      p(class = "muted", "Not connected. This is optional: without it, download each archive from Step 7 and keep it in a folder on your computer."),
+      p(class = "muted", "To keep a shared record of drafts and published archives, add an AWS S3 bucket and credentials to .Renviron (see the README).")
+    )
   )
 
   render_archive_table <- function(df_reactive) DT::renderDT({
@@ -2959,6 +3294,10 @@ server <- function(input, output, session) {
     rv$name_corrections <- character()
     rv$manual_aphia_overrides <- c()
     rv$excluded_taxa <- character()
+    rv$use_accepted_names <- character()
+    rv$misspellings_seen <- character()
+    rv$unknown_names <- character()
+    rv$keep_names <- character()
     rv$qc_result    <- NULL
     rv$eml_xml      <- NULL
 

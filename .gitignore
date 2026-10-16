@@ -6,3 +6,11 @@ output/
 CLAUDE.md
 .Renviron
 templates/eml_metadata_from_sample.xlsx
+
+# Organisation logos: not shared in the public repo. The app shows a
+# placeholder in the footer when www/partner_logo.* is missing.
+docs/img/MF-Oceans-UWA-logo-lockup.jpg
+www/partner_logo.*
+# Page background picture: not ours to redistribute; the app falls back to the plain background.
+docs/img/bg.png
+www/page_bg.*

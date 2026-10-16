@@ -1,15 +1,33 @@
-# Copy this file to .Renviron (same folder as app.R) and fill in real values.
-# .Renviron itself is gitignored - never commit real credentials.
+# OPTIONAL. Without a .Renviron, MAT runs in local mode: no accounts, and
+# you build and download archives on your own computer.
+#
+# To add shared storage and team accounts, copy this file to .Renviron (same
+# folder as app.R) and fill in YOUR OWN values. .Renviron is gitignored -
+# never commit real credentials. Accounts need BOTH the S3 and SMTP sections.
 
 # --- S3 (Draft/Publish archive storage - see R/archive_history.R) ----------
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 AWS_DEFAULT_REGION=
-# Optional overrides (defaults are set in R/archive_history.R):
-# FAIRE2OBIS_S3_BUCKET=
+# Your bucket's name. Required for your own install: if unset, the app falls
+# back to the original deployment's bucket, which your keys can't access.
+FAIRE2OBIS_S3_BUCKET=
+# Optional parent folder for Draft/, Publish/ and Report/ (default "biodiversity-public").
 # FAIRE2OBIS_S3_PREFIX=
 
-# --- Login (signup/login/forgot-password - see R/user_auth.R) --------------
+# --- Who can sign up (see R/user_auth.R) ------------------------------------
+# Accounts give access to your team's saved drafts and published archives,
+# so sign-up is limited to ONE email domain: your organisation's.
+# SET THIS TO YOUR OWN DOMAIN when you fork - if left unset it defaults to
+# the original deployment's domain (uwa.edu.au).
+ALLOWED_EMAIL_DOMAIN=your-organisation.org
+# Admins (comma-separated). They manage accounts and decide who may publish;
+# everyone else starts as a "user" who can only save drafts.
+ADMIN_EMAILS=you@your-organisation.org
+# Shown to people who need access or are outside the allowed domain.
+SUPPORT_CONTACT_EMAIL=data-team@your-organisation.org
+
+# --- Email for sign-up codes (signup/login/forgot-password) -----------------
 # SMTP sends the verification/reset codes and the failed-login warning
 # email. Defaults to Gmail if SMTP_HOST/SMTP_PORT are left unset.
 #   Gmail (the default):    smtp.gmail.com : 587 - needs a Google "app
@@ -18,16 +36,10 @@ AWS_DEFAULT_REGION=
 #                            account's normal login password.
 #   Outlook.com/Hotmail:    smtp-mail.outlook.com : 587 - same idea, a
 #                            Microsoft "app password".
-#   Office 365 (UWA email): smtp.office365.com : 587 - Microsoft has been
-#                            disabling SMTP AUTH tenant-wide by default, so
-#                            this needs UWA IT to explicitly re-enable
-#                            "SMTP AUTH" for the sending mailbox first, or
-#                            every send fails with an authentication error.
+#   Office 365:             smtp.office365.com : 587 - many organisations
+#                            disable SMTP AUTH by default, so IT may need to
+#                            re-enable it for the sending mailbox first.
 # SMTP_HOST=smtp.gmail.com
 # SMTP_PORT=587
-SMTP_USER=oceanomics.tech@gmail.com
+SMTP_USER=
 SMTP_PASSWORD=
-
-# Only email addresses ending in this domain can sign up. Defaults to
-# "uwa.edu.au" if left unset.
-ALLOWED_EMAIL_DOMAIN=uwa.edu.au

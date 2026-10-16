@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 600" width="520" height="600">
+  <title>Multi-Assay Toolkit (MAT)</title>
+  <defs>
+    <clipPath id="hex"><polygon points="260,10 511.15,155 511.15,445 260,590 8.85,445 8.85,155"/></clipPath>
+    <radialGradient id="bg" cx="0.5" cy="0.36" r="0.75">
+      <stop offset="0" stop-color="#15808f"/>
+      <stop offset="0.45" stop-color="#0c4766"/>
+      <stop offset="1" stop-color="#061c33"/>
+    </radialGradient>
+    <radialGradient id="hubFill" cx="0.4" cy="0.35" r="0.8">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#9ff0e4"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#7ff3e2" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#7ff3e2" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#bff3ec"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#021222" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <g clip-path="url(#hex)">
+    <rect width="520" height="600" fill="url(#bg)"/>
+
+    <!-- bathymetric contour lines -->
+    <g fill="none" stroke="#ffffff" stroke-width="1.2">
+      <path d="M-10,90 C90,60 170,120 270,92 C370,64 430,110 530,86" stroke-opacity="0.07"/>
+      <path d="M-10,128 C80,100 180,160 280,130 C380,100 440,150 530,122" stroke-opacity="0.06"/>
+      <path d="M-10,390 C100,360 180,420 280,392 C370,366 440,410 530,384" stroke-opacity="0.06"/>
+      <path d="M-10,520 C90,494 190,548 290,520 C380,496 450,536 530,512" stroke-opacity="0.08"/>
+      <path d="M-10,556 C90,532 190,580 290,556 C380,534 450,570 530,550" stroke-opacity="0.06"/>
+    </g>
+
+    <!-- rings -->
+    <circle cx="260" cy="230" r="118" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="1.5" stroke-dasharray="2 7" stroke-linecap="round"/>
+    <circle cx="260" cy="230" r="78" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1"/>
+
+    <!-- spokes: one sample, many assays -->
+    <g stroke-width="3" stroke-linecap="round" fill="none">
+      <line x1="260" y1="192" x2="260" y2="122" stroke="#4fd1c5"/>
+      <line x1="293" y1="249" x2="362" y2="289" stroke="#f6c76b"/>
+      <line x1="260" y1="268" x2="260" y2="338" stroke="#f08a7e"/>
+      <line x1="227" y1="249" x2="158" y2="289" stroke="#b3a6ff"/>
+      <line x1="227" y1="211" x2="158" y2="171" stroke="#63b3ed"/>
+      <line x1="293" y1="211" x2="362" y2="171" stroke="#ffffff" stroke-opacity="0.55" stroke-dasharray="3 7"/>
+    </g>
+
+    <!-- assay nodes -->
+    <g>
+      <circle cx="260" cy="112" r="20" fill="#4fd1c5" fill-opacity="0.18"/><circle cx="260" cy="112" r="10" fill="#4fd1c5"/>
+      <circle cx="362" cy="289" r="20" fill="#f6c76b" fill-opacity="0.18"/><circle cx="362" cy="289" r="10" fill="#f6c76b"/>
+      <circle cx="260" cy="348" r="20" fill="#f08a7e" fill-opacity="0.18"/><circle cx="260" cy="348" r="10" fill="#f08a7e"/>
+      <circle cx="158" cy="289" r="20" fill="#b3a6ff" fill-opacity="0.18"/><circle cx="158" cy="289" r="10" fill="#b3a6ff"/>
+      <circle cx="158" cy="171" r="20" fill="#63b3ed" fill-opacity="0.18"/><circle cx="158" cy="171" r="10" fill="#63b3ed"/>
+      <!-- open slot: any number of assays -->
+      <circle cx="362" cy="171" r="13" fill="none" stroke="#ffffff" stroke-opacity="0.7" stroke-width="2" stroke-dasharray="3 4"/>
+      <path d="M362,165 V177 M356,171 H368" stroke="#ffffff" stroke-opacity="0.85" stroke-width="2.2" stroke-linecap="round"/>
+    </g>
+
+    <!-- the one sample (Event core) -->
+    <circle cx="260" cy="230" r="70" fill="url(#halo)"/>
+    <circle cx="260" cy="230" r="38" fill="url(#hubFill)" filter="url(#soft)"/>
+    <circle cx="260" cy="230" r="45" fill="none" stroke="#9ff0e4" stroke-opacity="0.6" stroke-width="1.5"/>
+    <path d="M260,208 C260,208 246,226 246,236 A14,14 0 0 0 274,236 C274,226 260,208 260,208 Z" fill="#0c4766"/>
+    <path d="M254,233 A6.5,6.5 0 0 0 257,244" fill="none" stroke="#9ff0e4" stroke-width="2.4" stroke-linecap="round"/>
+
+    <!-- name -->
+    <text x="260" y="452" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="100" font-weight="700" letter-spacing="14" fill="url(#title)" filter="url(#soft)">MAT</text>
+    <line x1="165" y1="470" x2="355" y2="470" stroke="#7fe3d8" stroke-opacity="0.45" stroke-width="1"/>
+    <circle cx="260" cy="470" r="3" fill="#7fe3d8"/>
+    <text x="261.6" y="495" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="16" font-weight="600" letter-spacing="3.2" fill="#a8ece4">MULTI-ASSAY TOOLKIT</text>
+    <text x="261" y="524" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="11" font-weight="600" letter-spacing="2" fill="#ffffff" fill-opacity="0.6">eDNA → DwC-A</text>
+  </g>
+
+  <!-- frame -->
+  <polygon points="260,10 511.15,155 511.15,445 260,590 8.85,445 8.85,155" fill="none" stroke="#04182b" stroke-width="16" stroke-linejoin="round"/>
+  <polygon points="260,27 496.4,163.5 496.4,436.5 260,573 23.6,436.5 23.6,163.5" fill="none" stroke="#4fd1c5" stroke-opacity="0.55" stroke-width="1.6" stroke-linejoin="round"/>
+</svg>
