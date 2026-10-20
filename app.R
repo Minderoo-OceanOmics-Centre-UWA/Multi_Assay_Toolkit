@@ -737,7 +737,7 @@ server <- function(input, output, session) {
     taxonomy_rechecks  = 0,      # times "Apply & re-check" has been run on the current build
     name_corrections   = character(),  # user-entered corrections for unmatched names, this session
     use_accepted_names = character(),  # synonyms the user switched to WoRMS' accepted name
-    misspellings_seen  = character(),  # WoRMS-flagged misspellings already defaulted to the correct spelling
+    auto_id_off        = character(),  # auto-resolved names whose chosen WoRMS ID the reviewer left to OBIS
     unknown_names      = character(),  # unmatched names recorded as "Biota incertae sedis"
     keep_names         = character(),  # unmatched names kept as-is, not yet in WoRMS
     manual_aphia_overrides = c(),      # user-chosen AphiaIDs for ambiguous names, this session
@@ -1637,7 +1637,7 @@ server <- function(input, output, session) {
       rv$taxonomy_rechecks <- 0
       rv$excluded_taxa <- character()
       rv$use_accepted_names <- character()
-      rv$misspellings_seen <- character()
+      rv$auto_id_off <- character()
       rv$unknown_names <- character()
       rv$keep_names <- character()
       rv$qc_result     <- NULL
@@ -1740,15 +1740,8 @@ server <- function(input, output, session) {
     })
     if (!is.null(result)) {
       rv$worms_result <- result
-      # A name WoRMS itself flags as a misspelling starts on the correct
-      # spelling; only names seen for the first time, so an "Original" choice
-      # survives a re-check.
-      syn <- result$synonym_df
-      if (!is.null(syn) && nrow(syn) > 0) {
-        new_misspelt <- setdiff(syn$queriedName[grepl("^misspelling", syn$worms_status, ignore.case = TRUE)], rv$misspellings_seen)
-        rv$use_accepted_names <- union(rv$use_accepted_names, new_misspelt)
-        rv$misspellings_seen <- union(rv$misspellings_seen, new_misspelt)
-      }
+      # Spelling variants and newer names both start on the original name;
+      # the reviewer switches any row to the WoRMS form in Step 4.
       # Any change to taxonomy matching invalidates a previously-run QC
       # result - clear it so Step 5 re-checks fresh instead of silently
       # showing a stale pass/fail from before this change.
@@ -1785,7 +1778,7 @@ server <- function(input, output, session) {
   named_occurrence <- reactive({
     req(rv$worms_result)
     g <- name_groups()
-    apply_name_choices(rv$worms_result, rv$use_accepted_names, g$unknown, g$keep)
+    apply_name_choices(rv$worms_result, rv$use_accepted_names, g$unknown, g$keep, rv$auto_id_off)
   })
   excluded_name_ids <- reactive({
     r <- rv$worms_result
@@ -1802,7 +1795,9 @@ server <- function(input, output, session) {
     ids <- excluded_name_ids()
     occ <- named_occurrence()
     if (length(ids) == 0) return(occ)
-    lapply(occ, function(o) o[!(o$scientificNameID %in% ids), , drop = FALSE])
+    # By name too: an excluded name whose auto-chosen ID was turned off has no ID.
+    no_id_names <- intersect(rv$excluded_taxa, rv$auto_id_off)
+    lapply(occ, function(o) o[!(o$scientificNameID %in% ids | o$scientificName %in% no_id_names), , drop = FALSE])
   })
   final_dna <- reactive({
     req(rv$build_result)
@@ -1854,6 +1849,10 @@ server <- function(input, output, session) {
       "Identifications judged unreliable and not in WoRMS are recorded as 'Biota incertae sedis' (urn:lsid:marinespecies.org:taxname:12), ",
       "with the original name kept in verbatimIdentification and identificationRemarks: ",
       paste(sort(unknown), collapse = ", "), "."))
+    auto_off <- intersect(rv$auto_id_off, r$resolved_ambiguous_df$queriedName)
+    if (length(auto_off) > 0) notes <- c(notes, paste0(
+      "For names with several WoRMS records, the WoRMS ID was left for OBIS to assign during ingestion: ",
+      paste(sort(auto_off), collapse = ", "), "."))
     if (length(notes) == 0) NULL else notes
   })
 
@@ -1968,7 +1967,7 @@ server <- function(input, output, session) {
         card_body(
           div(class = "d-flex flex-wrap gap-3",
               stat_box(n_matched, "Matched"),
-              stat_box(n_auto, "Auto-resolved"),
+              stat_box(n_auto, "Auto-selected IDs"),
               stat_box(length(ambiguous_names), "Need your review"),
               stat_box(n_known_misspellings + length(unmatched_names), "Spelling variants"),
               stat_box(n_synonyms, "Newer name in WoRMS"),
@@ -1989,170 +1988,209 @@ server <- function(input, output, session) {
         )
       ),
 
-      if (length(ambiguous_names) > 0) {
-        card(
-          class = "issue-card",
-          card_header(bsicons::bs_icon("question-circle", class = "section-icon"), "Ambiguous names - pick the correct WoRMS record"),
-          card_body(
-            p(class = "muted", "WoRMS returned more than one candidate with no single clearly-accepted record among them. Pick the correct one below, or leave it unresolved."),
-            tagList(lapply(ambiguous_names, function(nm) {
-              cand <- r$ambiguous_df %>% filter(queriedName == nm)
-              choices <- setNames(
-                as.character(cand$AphiaID),
-                paste0(cand$AphiaID, " — ", cand$scientificname, " (", cand$status, ", ", cand$rank, ", marine=", cand$isMarine, ")")
-              )
-              div(class = "assay-row",
-                  div(class = "d-flex align-items-center gap-2", strong(nm), taxon_check_button(nm)),
-                  selectInput(paste0("choose_aphia_", safe_id(nm)), NULL, choices = c("Leave unresolved" = "", choices)),
-                  div(class = "muted", "Open a candidate in WoRMS: ",
-                      lapply(cand$AphiaID, function(id) tagList(
-                        tags$a(href = worms_taxon_url(id), target = "_blank", rel = "noopener noreferrer", paste0(id, " ↗")), " ")))
-              )
-            }))
-          )
-        )
-      },
-
-      if (n_known_misspellings > 0 || length(unmatched_names) > 0) {
-        card(
-          class = if (length(unmatched_names) > 0) "issue-card warning",
-          card_header(bsicons::bs_icon("spellcheck", class = "section-icon"), "Spelling variants"),
-          card_body(
-            if (n_known_misspellings > 0) tagList(
-              h6(class = "fw-bold mb-1", "Names WoRMS spells differently"),
-              p(class = "muted", "Same species, same name - WoRMS uses a different spelling. Usually it's the Latin ending: a species name must agree in gender with its genus, ",
-                "so the ending changes when the genus is re-assessed (", tags$em("heptacanthus"), " / ", tags$em("heptacantha"), "). ",
-                "WoRMS files the older form under the technical status \"misspelling\"; it isn't a mistake in your data, just an older spelling."),
-              p(class = "muted", "These are set to the WoRMS spelling, the form OBIS uses. Switch a row to ", strong("Original spelling"), " to keep the spelling from your data. ",
-                "Your original stays in ", tags$code("verbatimIdentification"), " and a change is noted in ", tags$code("identificationRemarks"), "."),
-              uiOutput("misspelling_table")
-            ),
-            if (n_known_misspellings > 0 && length(unmatched_names) > 0) hr(),
-            if (length(unmatched_names) > 0) tagList(
-            h6(class = "fw-bold mb-1", "Close spellings found by WoRMS's search"),
-            p(class = "muted", "WoRMS has no record with these names as written, but its typo-tolerant search found one or more close names. Compare them, choose an option, then click ", strong("Apply & re-check"), "."),
-            tags$ul(class = "muted small mb-3",
-              tags$li(strong("Use WoRMS's spelling"), " - the name is corrected and matched. Your original stays in ", tags$code("verbatimIdentification"), "."),
-              tags$li(strong("Keep original name"), " - if the original spelling is right and the taxon just isn't in WoRMS yet. It moves to ", em("Not yet in WoRMS"), " below."),
-              tags$li(strong("Try another name"), " - type a different name to look up."),
-              tags$li(strong("Record as unknown"), " - published as ", tags$em("Biota incertae sedis"), ", for a name you doubt.")),
-            tagList(lapply(unmatched_names, function(nm) {
-              candidates <- r$fuzzy_candidates[[nm]] %||% unname(r$suggested_corrections[nm])
-              sid <- safe_id(nm)
-              choice_names <- c(
-                lapply(candidates, function(cand) tagList("Use WoRMS's spelling: ", tags$em(strong(cand)))),
-                list("Keep original name", "Try another name",
-                     tagList("Record as unknown (", tags$em("Biota incertae sedis"), ")")))
-              choice_values <- c(paste0("s", seq_along(candidates)), "keep", "other", "unknown")
-              div(class = "assay-row",
-                  div(class = "d-flex align-items-center gap-2 mb-2 flex-wrap",
-                      span(class = "muted", "Original name:"), strong(tags$em(nm)),
-                      bsicons::bs_icon("arrow-right", class = "muted"),
-                      span(class = "muted", if (length(candidates) == 1) "WoRMS:" else paste0("WoRMS (", length(candidates), " close names):")),
-                      strong(tags$em(paste(candidates, collapse = " / "))),
-                      taxon_check_button(nm, paste0("correct_name_", sid))),
-                  radioButtons(paste0("unmatched_choice_", sid), NULL,
-                               choiceNames = choice_names, choiceValues = choice_values,
-                               selected = if (length(candidates) == 1) "s1" else character(0)),
-                  conditionalPanel(
-                    condition = sprintf("input['unmatched_choice_%s'] == 'other'", sid),
-                    textInput(paste0("correct_name_", sid), NULL, placeholder = "Corrected name to look up in WoRMS")
-                  )
-              )
-            }))
-            )
-          )
-        )
-      },
-
-      if (n_auto > 0 && any(r$resolved_ambiguous_df$resolution == "single_accepted")) {
+      # Results are split into tabs so what MUST be decided ("To review") is
+      # never mixed with optional or automatic items. Orange, not red: none of
+      # this blocks publishing once reviewed.
+      local({
         auto <- r$resolved_ambiguous_df
-        auto <- auto[auto$resolution == "single_accepted", , drop = FALSE]
-        card(
-          card_header(bsicons::bs_icon("check2-all", class = "section-icon"), "Auto-resolved names"),
-          card_body(
-            p(class = "muted", "WoRMS returned more than one record for each of these names, but only one of them is ", strong("accepted"),
-              "; the others are old or duplicate entries for the same name (unaccepted, nomen dubium and similar). MAT used the accepted record - WoRMS's own choice, not a guess. ",
-              "Names with two or more accepted records (different organisms sharing a name) are never auto-resolved; they appear under Ambiguous names."),
-            tags$table(class = "table align-middle mb-0",
-              tags$thead(tags$tr(tags$th("Name"), tags$th("Record used"), tags$th("Other WoRMS records for this name"), tags$th())),
-              tags$tbody(lapply(unique(auto$queriedName), function(nm) {
-                recs <- auto[auto$queriedName == nm, , drop = FALSE]
-                used <- recs[recs$AphiaID == recs$chosenAphiaID[1], , drop = FALSE]
-                others <- recs[recs$AphiaID != recs$chosenAphiaID[1], , drop = FALSE]
-                tags$tr(
-                  tags$td(tags$em(nm)),
-                  tags$td(tags$a(href = worms_taxon_url(recs$chosenAphiaID[1]), target = "_blank", rel = "noopener noreferrer",
-                                 paste0("AphiaID ", recs$chosenAphiaID[1], " ↗")),
-                          span(class = "muted small", paste0(" (", used$rank[1], ", accepted)"))),
-                  tags$td(class = "small", lapply(seq_len(nrow(others)), function(i) div(
-                    tags$a(href = worms_taxon_url(others$AphiaID[i]), target = "_blank", rel = "noopener noreferrer", others$AphiaID[i]),
-                    span(class = "muted", paste0(" ", others$status[i], ", ", others$rank[i]))))),
-                  tags$td(class = "text-end", taxon_check_button(nm))
+        auto <- if (!is.null(auto) && nrow(auto) > 0) auto[auto$resolution == "single_accepted", , drop = FALSE] else NULL
+        n_auto_ids <- if (is.null(auto)) 0 else length(unique(auto$queriedName))
+        n_review <- length(ambiguous_names) + length(unmatched_names)
+        n_updates <- n_known_misspellings + n_synonyms
+        n_non_marine <- nrow(r$non_marine_df)
+        tab_label <- function(text, n, cls = "bg-secondary-subtle text-secondary-emphasis") {
+          tagList(text, " ", span(class = paste("badge rounded-pill", cls), n))
+        }
+        nothing <- function(text) div(class = "muted py-3", bsicons::bs_icon("check-circle-fill", class = "text-success"), " ", text)
+        tab_intro <- function(...) p(class = "muted mt-3 mb-3", ...)
+
+        navset_underline(
+          id = "step4_tabs",
+
+          # ---- 1. Decisions needed ------------------------------------------
+          nav_panel(
+            tab_label("To review", n_review, if (n_review > 0) "bg-warning text-dark" else "bg-success"), value = "review",
+            tab_intro(strong("These need your decision before you continue."), " Choose an option for each name, then click ", strong("Apply & re-check"), "."),
+            if (n_review == 0) nothing("Nothing needs your review. The other tabs are for information and optional changes."),
+            if (length(ambiguous_names) > 0) {
+              card(
+                class = "issue-card warning",
+                card_header(bsicons::bs_icon("question-circle", class = "section-icon"), "Ambiguous names - pick the correct WoRMS record"),
+                card_body(
+                  p(class = "muted", "WoRMS has more than one accepted record with this name - usually different organisms that share a name, such as a fish and a plant. ",
+                    "Only you can tell which one your data means, so pick the correct record below."),
+                  tagList(lapply(ambiguous_names, function(nm) {
+                    cand <- r$ambiguous_df %>% filter(queriedName == nm)
+                    choices <- setNames(
+                      as.character(cand$AphiaID),
+                      paste0(cand$AphiaID, " — ", cand$scientificname, " (", cand$status, ", ", cand$rank, ", marine=", cand$isMarine, ")")
+                    )
+                    div(class = "assay-row",
+                        div(class = "d-flex align-items-center gap-2", strong(nm), taxon_check_button(nm)),
+                        selectInput(paste0("choose_aphia_", safe_id(nm)), NULL, choices = c("Leave unresolved" = "", choices)),
+                        div(class = "muted", "Open a candidate in WoRMS: ",
+                            lapply(cand$AphiaID, function(id) tagList(
+                              tags$a(href = worms_taxon_url(id), target = "_blank", rel = "noopener noreferrer", paste0(id, " ↗")), " ")))
+                    )
+                  }))
                 )
-              }))
-            )
-          )
-        )
-      },
+              )
+            },
+            if (length(unmatched_names) > 0) {
+              card(
+                class = "issue-card warning",
+                card_header(bsicons::bs_icon("spellcheck", class = "section-icon"), "Close spellings found by WoRMS's search"),
+                card_body(
+                  p(class = "muted", "WoRMS has no record with these names as written, but its typo-tolerant search found one or more close names. Compare them and choose an option."),
+                  tags$ul(class = "muted small mb-3",
+                    tags$li(strong("Use WoRMS's spelling"), " - the name is corrected and matched. Your original stays in ", tags$code("verbatimIdentification"), "."),
+                    tags$li(strong("Keep original name"), " - if the original spelling is right and the taxon just isn't in WoRMS yet. It moves to the ", em("Not yet in WoRMS"), " tab."),
+                    tags$li(strong("Try another name"), " - type a different name to look up."),
+                    tags$li(strong("Record as unknown"), " - published as ", tags$em("Biota incertae sedis"), ", for a name you doubt.")),
+                  tagList(lapply(unmatched_names, function(nm) {
+                    candidates <- r$fuzzy_candidates[[nm]] %||% unname(r$suggested_corrections[nm])
+                    sid <- safe_id(nm)
+                    choice_names <- c(
+                      lapply(candidates, function(cand) tagList("Use WoRMS's spelling: ", tags$em(strong(cand)))),
+                      list("Keep original name", "Try another name",
+                           tagList("Record as unknown (", tags$em("Biota incertae sedis"), ")")))
+                    choice_values <- c(paste0("s", seq_along(candidates)), "keep", "other", "unknown")
+                    div(class = "assay-row",
+                        div(class = "d-flex align-items-center gap-2 mb-2 flex-wrap",
+                            span(class = "muted", "Original name:"), strong(tags$em(nm)),
+                            bsicons::bs_icon("arrow-right", class = "muted"),
+                            span(class = "muted", if (length(candidates) == 1) "WoRMS:" else paste0("WoRMS (", length(candidates), " close names):")),
+                            strong(tags$em(paste(candidates, collapse = " / "))),
+                            taxon_check_button(nm, paste0("correct_name_", sid))),
+                        radioButtons(paste0("unmatched_choice_", sid), NULL,
+                                     choiceNames = choice_names, choiceValues = choice_values,
+                                     selected = if (length(candidates) == 1) "s1" else character(0)),
+                        conditionalPanel(
+                          condition = sprintf("input['unmatched_choice_%s'] == 'other'", sid),
+                          textInput(paste0("correct_name_", sid), NULL, placeholder = "Corrected name to look up in WoRMS")
+                        )
+                    )
+                  }))
+                )
+              )
+            }
+          ),
 
-      if (n_synonyms > 0) {
-        card(
-          card_header(bsicons::bs_icon("arrow-left-right", class = "section-icon"), "Names WoRMS lists under a newer name"),
-          card_body(
-            p(class = "muted", "WoRMS recognises these names but now uses a different accepted name for the same taxon (for example after a genus change). Choose, for each one, whether to publish the WoRMS accepted name or the original name."),
-            p(class = "muted small", strong("Keeping the original name is valid: "), "it stays linked to its WoRMS record, and OBIS shows the records under the accepted name. Switching makes the archive use the current name directly. Either way your original name is kept in ",
-              tags$code("verbatimIdentification"), ", and a switch is noted in ", tags$code("identificationRemarks"), "."),
-            uiOutput("synonym_table")
-          )
-        )
-      },
+          # ---- 2. Optional name updates --------------------------------------
+          nav_panel(
+            tab_label("Name updates", n_updates), value = "updates",
+            tab_intro(strong("Optional."), " WoRMS knows these names in a newer form. OBIS links them to the current name automatically when it publishes your data, ",
+                      "so the original names are fine to keep. Choose here only if you want the archive itself to use the WoRMS form."),
+            if (n_updates == 0) nothing("No names need updating - every matched name is already in its current WoRMS form."),
+            if (n_known_misspellings > 0) {
+              card(
+                card_header(bsicons::bs_icon("spellcheck", class = "section-icon"), "Spelling variants"),
+                card_body(
+                  p(class = "muted", "Same species, same name - WoRMS uses a different spelling. Usually it's the Latin ending: a species name must agree in gender with its genus, ",
+                    "so the ending changes when the genus is re-assessed (", tags$em("heptacanthus"), " / ", tags$em("heptacantha"), "). ",
+                    "WoRMS files the older form under the technical status \"misspelling\"; it isn't a mistake in your data, just an older spelling."),
+                  p(class = "muted", "These keep the ", strong("original spelling"), " from your data by default - it stays linked to its WoRMS record, and OBIS shows the WoRMS spelling. ",
+                    "Switch a row to ", strong("WoRMS spelling"), " if you want the archive itself to use it. ",
+                    "Your original always stays in ", tags$code("verbatimIdentification"), ", and a change is noted in ", tags$code("identificationRemarks"), "."),
+                  uiOutput("misspelling_table")
+                )
+              )
+            },
+            if (n_synonyms > 0) {
+              card(
+                card_header(bsicons::bs_icon("arrow-left-right", class = "section-icon"), "Names WoRMS lists under a newer name"),
+                card_body(
+                  p(class = "muted", "WoRMS recognises these names but now uses a different accepted name for the same taxon (for example after a genus change). Choose, for each one, whether to publish the WoRMS accepted name or the original name."),
+                  p(class = "muted small", strong("Keeping the original name is valid: "), "it stays linked to its WoRMS record, and OBIS shows the records under the accepted name. Switching makes the archive use the current name directly. Either way your original name is kept in ",
+                    tags$code("verbatimIdentification"), ", and a switch is noted in ", tags$code("identificationRemarks"), "."),
+                  uiOutput("synonym_table")
+                )
+              )
+            }
+          ),
 
-      if (n_not_in_worms > 0) {
-        card(
-          card_header(bsicons::bs_icon("stars", class = "section-icon"), "Not yet in WoRMS - possibly newly detected taxa"),
-          card_body(
-            p(class = "muted", "WoRMS has no record of these names and no close spelling. eDNA often detects taxa that WoRMS hasn't registered yet, including newly described species. ",
-              strong("Nothing to do here"), " unless a name looks wrong."),
-            div(class = "alert alert-info py-2 small",
-                "They are published as identified: ", tags$code("scientificNameID"), " left empty, the NCBI ID in ", tags$code("taxonConceptID"),
-                ", and the original name in ", tags$code("verbatimIdentification"), ". ",
-                strong("OBIS may treat them as unknown"), " until WoRMS registers the name - at most it places them under a higher rank it can find. Rebuild the archive once WoRMS has them."),
-            uiOutput("not_in_worms_table")
-          )
-        )
-      },
+          # ---- 3. Automatically selected WoRMS IDs ---------------------------
+          nav_panel(
+            tab_label("Auto-selected IDs", n_auto_ids), value = "auto",
+            tab_intro(strong("Optional - nothing to fix here."), " This only affects which WoRMS ID is attached. ", strong("Your taxonomic names are not changed.")),
+            if (n_auto_ids == 0) nothing("No names needed an automatic ID choice."),
+            if (n_auto_ids > 0) {
+              card(
+                card_header(bsicons::bs_icon("check2-all", class = "section-icon"), "WoRMS IDs selected automatically"),
+                card_body(
+                  p(class = "muted", "WoRMS has more than one record for each of these names: one ", strong("accepted"),
+                    " record, plus older entries for the same name (unaccepted, junior homonym, unassessed). MAT attached the accepted record's ID - WoRMS's own choice, not a guess."),
+                  p(class = "muted", strong("Why it's worth a look: "), "it shows exactly which ID each record will carry. ",
+                    "If you'd rather not choose here, switch a name to ", strong("Leave to OBIS"), ": the ID is left empty and OBIS identifies the record when it publishes your data from the IPT. ",
+                    "Either way the name stays exactly as it is."),
+                  uiOutput("auto_id_table")
+                )
+              )
+            }
+          ),
 
-      if (nrow(r$non_marine_df) > 0) {
-        card(
-          card_header(bsicons::bs_icon("flag", class = "section-icon"), "Not marine in WoRMS - review before publishing"),
-          card_body(
-            div(class = "muted mb-3",
-                p(class = "mb-1", "These names are flagged because WoRMS doesn't record them as marine. ", strong("You can still publish them."), " ",
-                  tags$a(href = "#non_marine_more", class = "read-more-link", `data-bs-toggle` = "collapse", role = "button",
-                         `aria-expanded` = "false", `aria-controls` = "non_marine_more",
-                         span(class = "when-collapsed", "Read more"), span(class = "when-expanded", "Show less"),
-                         bsicons::bs_icon("chevron-down", class = "read-more-chevron"))),
-                div(id = "non_marine_more", class = "collapse",
-                  p(class = "mb-2 mt-1", "They may live in freshwater or on land, or WoRMS may not have a habitat recorded for them yet. They go to the IPT with the rest of the data, and OBIS decides what to do with each one. OBIS reports any quality issues back to the data provider if something needs clarifying."),
-                  p(class = "mb-1", strong("OBIS outcome"), " predicts what OBIS will do:"),
-                  tags$ul(class = "mb-2",
-                    tags$li(strong("Kept"), " - WoRMS records it as marine or brackish. Published normally."),
-                    tags$li(strong("Kept - marked unsure"), " - WoRMS has no marine or brackish record. Published, with a \"marine unsure\" flag."),
-                    tags$li(strong("Will be dropped"), " - WoRMS says it is neither marine nor brackish. Hidden from OBIS searches."))),
-                p(class = "mb-0 mt-2", strong("What to do:"), " click ", strong("Check"), " to see the taxon in WoRMS, OBIS, FishBase/SeaLifeBase, GBIF and Wikipedia. Everything is kept unless you click ",
-                  strong("Exclude"), ". Exclude only likely contamination or a wrong match, such as a land bird in a seawater sample. Exclusions are listed automatically in the eml.xml methods.")),
-            uiOutput("non_marine_table")
+          # ---- 4. Names WoRMS doesn't have -----------------------------------
+          nav_panel(
+            tab_label("Not yet in WoRMS", n_not_in_worms), value = "not_in_worms",
+            tab_intro(strong("Nothing to do here"), " unless a name looks wrong."),
+            if (n_not_in_worms == 0) nothing("Every name was found in WoRMS."),
+            if (n_not_in_worms > 0) {
+              card(
+                card_header(bsicons::bs_icon("stars", class = "section-icon"), "Not yet in WoRMS - possibly newly detected taxa"),
+                card_body(
+                  p(class = "muted", "WoRMS has no record of these names and no close spelling. eDNA often detects taxa that WoRMS hasn't registered yet, including newly described species."),
+                  div(class = "alert alert-info py-2 small",
+                      "They are published as identified: ", tags$code("scientificNameID"), " left empty, the NCBI ID in ", tags$code("taxonConceptID"),
+                      ", and the original name in ", tags$code("verbatimIdentification"), ". ",
+                      strong("OBIS may treat them as unknown"), " until WoRMS registers the name - at most it places them under a higher rank it can find. Rebuild the archive once WoRMS has them."),
+                  uiOutput("not_in_worms_table")
+                )
+              )
+            }
+          ),
+
+          # ---- 5. Not marine -------------------------------------------------
+          nav_panel(
+            tab_label("Not marine", n_non_marine), value = "not_marine",
+            tab_intro(strong("Optional review."), " Everything is published unless you exclude it."),
+            if (n_non_marine == 0) nothing("WoRMS records every matched name as marine."),
+            if (n_non_marine > 0) {
+              card(
+                card_header(bsicons::bs_icon("flag", class = "section-icon"), "Not marine in WoRMS - review before publishing"),
+                card_body(
+                  div(class = "muted mb-3",
+                      p(class = "mb-1", "These names are flagged because WoRMS doesn't record them as marine. ", strong("You can still publish them."), " ",
+                        tags$a(href = "#non_marine_more", class = "read-more-link", `data-bs-toggle` = "collapse", role = "button",
+                               `aria-expanded` = "false", `aria-controls` = "non_marine_more",
+                               span(class = "when-collapsed", "Read more"), span(class = "when-expanded", "Show less"),
+                               bsicons::bs_icon("chevron-down", class = "read-more-chevron"))),
+                      div(id = "non_marine_more", class = "collapse",
+                        p(class = "mb-2 mt-1", "They may live in freshwater or on land, or WoRMS may not have a habitat recorded for them yet. They go to the IPT with the rest of the data, and OBIS decides what to do with each one. OBIS reports any quality issues back to the data provider if something needs clarifying."),
+                        p(class = "mb-2", strong("Birds, reptiles and land animals are normal in eDNA. "),
+                          "Seawater carries DNA from seabirds, sea snakes and marine mammals, and from land animals whose DNA washes in from rivers, runoff or the shore. ",
+                          "These are real detections of DNA in the water, so keep them unless you have a reason to think otherwise."),
+                        p(class = "mb-1", strong("OBIS outcome"), " predicts what OBIS will do:"),
+                        tags$ul(class = "mb-2",
+                          tags$li(strong("Kept"), " - WoRMS records it as marine or brackish. Published normally."),
+                          tags$li(strong("Kept - marked unsure"), " - WoRMS has no marine or brackish record. Published, with a \"marine unsure\" flag."),
+                          tags$li(strong("Will be dropped"), " - WoRMS says it is neither marine nor brackish. Hidden from OBIS searches."))),
+                      p(class = "mb-0 mt-2", strong("What to do:"), " click ", strong("Check"), " to see the taxon in WoRMS, OBIS, FishBase/SeaLifeBase, GBIF and Wikipedia. Everything is kept unless you click ",
+                        strong("Exclude"), ". A bird, snake or land animal is not a reason to exclude on its own - eDNA genuinely detects them. ",
+                        "Exclude only likely lab or reagent contamination (for example human or common food species such as pig, cow or chicken) or a wrong match. Exclusions are listed automatically in the eml.xml methods.")),
+                  uiOutput("non_marine_table")
+                )
+              )
+            }
           )
         )
-      },
+      }),
 
       if (has_issues) {
         div(class = "alert alert-warning",
             bsicons::bs_icon("exclamation-triangle-fill"), " ",
-            paste0(n_issues, " name(s) still need attention. Choose a fix for each one above, then click "),
+            paste0(n_issues, " name(s) in the To review tab still need a decision. Choose an option for each, then click "),
             tags$b("Apply & re-check"),
-            ". Continue unlocks once no ambiguous or unmatched names remain - choices that aren't applied are not used.",
+            ". The other tabs are optional. Continue unlocks once nothing is left to review - choices that aren't applied are not used.",
             if (rv$taxonomy_rechecks >= 1) {
               tagList(
                 hr(class = "my-2"),
@@ -2287,12 +2325,82 @@ server <- function(input, output, session) {
       ),
       div(class = "muted small", {
         n_switched <- length(intersect(chosen, syn$queriedName))
-        if (misspellings) paste0(n_switched, " of ", nrow(syn), " set to the WoRMS spelling.")
+        if (misspellings && n_switched == 0) "All original spellings are kept. Switch any row to publish the WoRMS spelling instead."
+        else if (misspellings) paste0(n_switched, " of ", nrow(syn), " set to the WoRMS spelling.")
         else if (n_switched == 0) "All original names are kept. Switch any row to publish the WoRMS accepted name instead."
         else paste0(n_switched, " of ", nrow(syn), " switched to the WoRMS accepted name.")
       })
     )
   }
+  # Auto-selected IDs: one row per name, switch between the accepted ID MAT
+  # chose and "Leave to OBIS" (ID left empty). The name never changes.
+  output$auto_id_table <- renderUI({
+    req(rv$worms_result)
+    auto <- rv$worms_result$resolved_ambiguous_df
+    req(!is.null(auto), nrow(auto) > 0)
+    auto <- auto[auto$resolution == "single_accepted", , drop = FALSE]
+    req(nrow(auto) > 0)
+    off <- rv$auto_id_off
+    js <- "Shiny.setInputValue('auto_id_choice', {name: this.getAttribute('data-taxon'), off: this.value === 'off'}, {priority: 'event'})"
+    option <- function(nm, value, label, checked) {
+      tags$label(class = "radio-inline",
+        tags$input(type = "radio", name = paste0("autoid_", safe_id(nm)), value = value, `data-taxon` = nm,
+                   checked = if (checked) NA, onchange = js),
+        span(label))
+    }
+    all_btn <- function(off_all, icon, label) {
+      tags$button(type = "button", class = "btn btn-sm btn-outline-secondary btn-white",
+                  onclick = sprintf("Shiny.setInputValue('auto_id_all', {off: %s}, {priority: 'event'})", if (off_all) "true" else "false"),
+                  bsicons::bs_icon(icon), " ", label)
+    }
+    names_auto <- unique(auto$queriedName)
+    tagList(
+      div(class = "d-flex gap-2 justify-content-end mb-2",
+          all_btn(FALSE, "check2-all", "Use all accepted IDs"),
+          all_btn(TRUE, "cloud-arrow-up", "Leave all to OBIS")),
+      tags$table(class = "table align-middle",
+        tags$thead(tags$tr(tags$th("Name"), tags$th("Accepted ID (selected)"), tags$th("Other WoRMS records"), tags$th("WoRMS ID in archive"), tags$th())),
+        tags$tbody(lapply(names_auto, function(nm) {
+          recs <- auto[auto$queriedName == nm, , drop = FALSE]
+          chosen <- recs$chosenAphiaID[1]
+          used <- recs[recs$AphiaID == chosen, , drop = FALSE]
+          others <- recs[recs$AphiaID != chosen, , drop = FALSE]
+          is_off <- nm %in% off
+          tags$tr(
+            tags$td(tags$em(nm)),
+            tags$td(tags$a(href = worms_taxon_url(chosen), target = "_blank", rel = "noopener noreferrer", paste0(chosen, " ↗")),
+                    span(class = "muted small", paste0(" ", used$rank[1]))),
+            tags$td(class = "small", lapply(seq_len(nrow(others)), function(i) div(
+              tags$a(href = worms_taxon_url(others$AphiaID[i]), target = "_blank", rel = "noopener noreferrer", others$AphiaID[i]),
+              span(class = "muted", paste0(" ", others$status[i]))))),
+            tags$td(div(class = "choice-switch shiny-options-group",
+                        option(nm, "on", "Accepted ID", !is_off),
+                        option(nm, "off", "Leave to OBIS", is_off))),
+            tags$td(class = "text-end", taxon_check_button(nm))
+          )
+        }))
+      ),
+      div(class = "muted small",
+          if (length(intersect(off, names_auto)) == 0) "Every name carries its accepted WoRMS ID."
+          else paste0(length(intersect(off, names_auto)), " of ", length(names_auto),
+                      " left to OBIS. Step 5 will show these as records without a WoRMS ID - that's expected, and they can still be published."))
+    )
+  })
+  set_auto_id_off <- function(new) {
+    rv$auto_id_off <- new
+    rv$qc_result <- NULL
+    rv$eml_xml <- NULL
+  }
+  observeEvent(input$auto_id_choice, {
+    ch <- input$auto_id_choice
+    set_auto_id_off(if (isTRUE(ch$off)) union(rv$auto_id_off, ch$name) else setdiff(rv$auto_id_off, ch$name))
+  })
+  observeEvent(input$auto_id_all, {
+    auto <- rv$worms_result$resolved_ambiguous_df
+    names_auto <- unique(auto$queriedName[auto$resolution == "single_accepted"])
+    set_auto_id_off(if (isTRUE(input$auto_id_all$off)) names_auto else character())
+  })
+
   # Switching a name changes the data, so stale QC results and eml.xml are cleared.
   observeEvent(input$syn_choice, {
     ch <- input$syn_choice
@@ -2435,7 +2543,8 @@ server <- function(input, output, session) {
       x <- r[[k]]; length(x) == 0 || (is.data.frame(x) && nrow(x) == 0) || all(is.na(x))
     }, logical(1)))
     crosscheck_ok <- all(vapply(r$occ_dna_crosscheck, function(x) length(x$missing_in_dna) == 0 && length(x$missing_in_occ) == 0, logical(1)))
-    coverage_ok <- all(vapply(r$scientificname_coverage, function(x) x$missing == 0, logical(1)))
+    n_total   <- sum(vapply(r$scientificname_coverage, function(x) x$total, numeric(1)))
+    n_missing <- sum(vapply(r$scientificname_coverage, function(x) x$missing, numeric(1)))
 
     checklist <- list(
       list(label = "Required Darwin Core fields present (Event + Occurrence)", passed = fields_ok),
@@ -2446,13 +2555,18 @@ server <- function(input, output, session) {
       list(label = "Every Occurrence/DNA row's eventID exists in the Event core", passed = ext_ok),
       list(label = "Occurrence ↔ DNA Derived Data occurrenceID consistency", passed = crosscheck_ok),
       list(label = "occurrenceID unique across all assays (archive-wide)", passed = length(r$duplicate_occurrence_ids) == 0),
-      list(label = "100% scientificNameID coverage", passed = coverage_ok)
+      # Not a failure: names not yet in WoRMS (or IDs left to OBIS) are publishable.
+      if (n_missing == 0) list(label = "Every record has a WoRMS ID (scientificNameID)", passed = TRUE)
+      else list(label = paste0(format(n_total - n_missing, big.mark = ","), " of ", format(n_total, big.mark = ","),
+                               " records have a WoRMS ID (scientificNameID). The rest are names not yet in WoRMS, or IDs left to OBIS - still publishable."),
+                passed = TRUE, warning = TRUE)
     )
 
     check_row <- function(item) {
-      div(class = "d-flex align-items-center gap-2", style = "padding: 7px 0;",
-          if (item$passed) bsicons::bs_icon("check-circle-fill", class = "text-success") else bsicons::bs_icon("x-circle-fill", class = "text-danger"),
-          item$label)
+      icon <- if (isTRUE(item$warning)) bsicons::bs_icon("exclamation-circle-fill", class = "text-warning")
+              else if (item$passed) bsicons::bs_icon("check-circle-fill", class = "text-success")
+              else bsicons::bs_icon("x-circle-fill", class = "text-danger")
+      div(class = "d-flex align-items-center gap-2", style = "padding: 7px 0;", icon, item$label)
     }
 
     tagList(
@@ -2466,7 +2580,10 @@ server <- function(input, output, session) {
           }
         )
       ),
-      if (!qc$any_failures) {
+      if (!qc$any_failures && isTRUE(qc$any_warnings)) {
+        div(class = "alert alert-warning d-flex align-items-center gap-2",
+            bsicons::bs_icon("exclamation-circle-fill"), "All required checks passed. Some records have no WoRMS ID - that's expected for names not yet in WoRMS, and the data can still be published.")
+      } else if (!qc$any_failures) {
         div(class = "alert alert-success d-flex align-items-center gap-2",
             bsicons::bs_icon("check-circle-fill"), "All runnable checks passed. Still worth spot-checking a sample of rows before publishing.")
       } else {
@@ -3295,7 +3412,7 @@ server <- function(input, output, session) {
     rv$manual_aphia_overrides <- c()
     rv$excluded_taxa <- character()
     rv$use_accepted_names <- character()
-    rv$misspellings_seen <- character()
+    rv$auto_id_off <- character()
     rv$unknown_names <- character()
     rv$keep_names <- character()
     rv$qc_result    <- NULL

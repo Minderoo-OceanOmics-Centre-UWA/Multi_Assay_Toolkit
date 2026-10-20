@@ -294,10 +294,15 @@ match_worms <- function(occurrence_tables,
 #' @return The occurrence tables, with each change noted in
 #'   identificationRemarks. verbatimIdentification is never touched, so the
 #'   original identification is always kept.
+#' @param auto_id_off Auto-resolved names (several WoRMS records, one
+#'   accepted) whose automatically chosen ID the reviewer turned off. Their
+#'   scientificNameID is left empty, so OBIS matches the name itself on
+#'   ingestion. The name is unchanged either way.
 apply_name_choices <- function(worms_result, use_accepted = character(), unknown_names = character(),
-                               keep_names = character()) {
+                               keep_names = character(), auto_id_off = character()) {
   tables <- worms_result$occurrence_tables
-  if (length(use_accepted) == 0 && length(unknown_names) == 0 && length(keep_names) == 0) return(tables)
+  if (length(use_accepted) == 0 && length(unknown_names) == 0 && length(keep_names) == 0 &&
+      length(auto_id_off) == 0) return(tables)
 
   add_remark <- function(old, note) {
     ifelse(is.na(old) | old == "", note, paste(old, note, sep = " | "))
@@ -334,6 +339,14 @@ apply_name_choices <- function(worms_result, use_accepted = character(), unknown
       if ("identificationRemarks" %in% names(occ)) {
         occ$identificationRemarks[hit] <- add_remark(occ$identificationRemarks[hit],
           paste0("Identified as '", old_name, "', which is not yet registered in WoRMS; recorded as Biota incertae sedis until it is."))
+      }
+    }
+    hit <- occ$scientificName %in% auto_id_off
+    if (any(hit)) {
+      occ$scientificNameID[hit] <- NA_character_
+      if ("identificationRemarks" %in% names(occ)) {
+        occ$identificationRemarks[hit] <- add_remark(occ$identificationRemarks[hit],
+          "WoRMS has several records for this name; the WoRMS ID is left for OBIS to assign.")
       }
     }
     hit <- occ$scientificName %in% keep_raw & (is.na(occ$scientificNameID) | occ$scientificNameID == "")

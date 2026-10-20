@@ -18,16 +18,23 @@ run_qc_checks <- function(event, occurrence_tables, dna_tables) {
   log_msg <- function(...) messages <<- c(messages, paste0(...))
 
   any_failures <- FALSE
+  any_warnings <- FALSE
   any_skipped  <- character()
   results <- list()
 
   # 1/2. Required fields, via flatten_occurrence() (see script 05 for
   # why check_fields() needs a combined Event+Occurrence view).
+  # An empty scientificNameID is a WARNING, not a failure: names not yet in
+  # WoRMS are published without one (OBIS guidance), and the reviewer can
+  # leave an ID choice to OBIS in Step 4. Those records are still publishable.
   for (n in names(occurrence_tables)) {
     joined <- obistools::flatten_occurrence(event, occurrence_tables[[n]])
     check <- obistools::check_fields(joined, level = "warning")
-    results[[paste0("check_fields_", n)]] <- check
-    if (nrow(check) > 0) any_failures <- TRUE
+    id_rows <- if (nrow(check) > 0 && "field" %in% names(check)) check$field == "scientificNameID" else logical(nrow(check))
+    results[[paste0("check_fields_", n)]] <- check[!id_rows, , drop = FALSE]
+    results[[paste0("scientificnameid_empty_", n)]] <- check[id_rows, , drop = FALSE]
+    if (any(!id_rows)) any_failures <- TRUE
+    if (any(id_rows)) any_warnings <- TRUE
   }
 
   # 2b. eventID uniqueness + parentEventID validity within the Event core.
@@ -122,15 +129,17 @@ run_qc_checks <- function(event, occurrence_tables, dna_tables) {
     log_msg("ERROR: ", length(dup_occurrence_ids), " occurrenceID(s) duplicated across assays - not unique archive-wide.")
   }
 
-  # 7. scientificNameID completeness (post-WoRMS-matching check).
+  # 7. scientificNameID completeness (post-WoRMS-matching check). A warning,
+  # not a failure - see the note at check 1/2.
   scientificname_coverage <- list()
   for (n in names(occurrence_tables)) {
     occ <- occurrence_tables[[n]]
-    n_missing <- sum(is.na(occ$scientificNameID))
+    n_missing <- sum(is.na(occ$scientificNameID) | occ$scientificNameID == "")
     scientificname_coverage[[n]] <- list(total = nrow(occ), missing = n_missing)
-    if (n_missing > 0) any_failures <- TRUE
+    if (n_missing > 0) any_warnings <- TRUE
   }
   results$scientificname_coverage <- scientificname_coverage
 
-  list(results = results, any_failures = any_failures, any_skipped = any_skipped, messages = messages)
+  list(results = results, any_failures = any_failures, any_warnings = any_warnings,
+       any_skipped = any_skipped, messages = messages)
 }

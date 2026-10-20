@@ -250,7 +250,7 @@ about_page_ui <- function() {
         step_card(1, "Upload", "Enter a project ID and add one FAIRe workbook per assay. Assay names are detected from the file names."),
         step_card(2, "Validate", "Checks every sheet and header, and that all assays describe the same samples with the same metadata."),
         step_card(3, "Build", "Match each assay to its projectMetadata column(s), then build the Event core and the extensions. Every column is checked against the GBIF term definitions."),
-        step_card(4, "Taxonomy", "Every name is matched to WoRMS. Review anything ambiguous or not recorded as marine, and exclude contamination if needed."),
+        step_card(4, "Taxonomy", "Every name is matched to WoRMS. Review anything ambiguous or not recorded as marine (eDNA genuinely picks up birds, reptiles and land animals too), and exclude lab contamination if needed."),
         step_card(5, "QC checks", "OBIS quality checks: dates, coordinates, links between files, required fields and taxonomy coverage."),
         step_card(6, "Metadata", "Describe the dataset (people, abstract, methods, licence) by form or from the Excel template. MAT writes the eml.xml."),
         step_card(7, "Results", "Review the one-page report, then download the archive or save it as a draft for review.")
