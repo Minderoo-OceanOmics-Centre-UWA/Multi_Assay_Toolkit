@@ -57,6 +57,7 @@ source("R/eml_excel.R")
 source("R/archive_history.R")
 source("R/user_auth.R")
 source("R/about_page.R")
+source("R/footer_policies.R")
 
 # Converts a scientific name into a safe Shiny input-id fragment (no
 # spaces/punctuation) for the Step 4 per-name review widgets.
@@ -489,6 +490,7 @@ ui <- page_fluid(
     tags$meta(name = "description", content = "Multi-Assay Toolkit (MAT): publish multi-assay eDNA metabarcoding data in FAIRe format as one Darwin Core Archive for OBIS and GBIF."),
     tags$style(HTML(app_css)),
     tags$style(HTML(about_css)),
+    tags$style(HTML(footer_css)),
     # Shiny's own fileInput ships an INLINE style with !important
     # (position: absolute !important; top: -99999px !important) to
     # hide the native <input type=file> off-screen. Inline !important
@@ -664,6 +666,24 @@ ui <- page_fluid(
       "Publish",
       div(class = "content-wrap", uiOutput("publish_tab_body"))
     ),
+    # Name lookup, available at any time (not tied to a wizard step).
+    nav_panel(
+      "Search",
+      div(class = "content-wrap",
+        card(
+          card_header(bsicons::bs_icon("search", class = "section-icon"), "Search a taxon"),
+          card_body(
+            p(class = "muted", "Look up any scientific name or WoRMS AphiaID. The result opens with tabs for WoRMS, OBIS, FishBase or SeaLifeBase, GBIF and Wikipedia - ",
+              "useful for checking a name before or while you prepare a dataset."),
+            div(class = "d-flex gap-2 align-items-start",
+                div(style = "flex: 1;", textInput("taxon_query", NULL, placeholder = "e.g. Gadus morhua  or  126436", width = "100%")),
+                actionButton("taxon_lookup_btn", tagList(bsicons::bs_icon("search"), " Search"), class = "btn-primary")),
+            # Enter in the box runs the search too.
+            tags$script(HTML("$(document).on('keydown', '#taxon_query', function(e) { if (e.key === 'Enter') { $('#taxon_lookup_btn').click(); } });"))
+          )
+        )
+      )
+    ),
     nav_panel("About", about_page_ui()),
     # Hidden/shown by an observer (see server) based on whether the logged-in
     # user is an admin - starts hidden (nobody is logged in yet at page
@@ -680,31 +700,7 @@ ui <- page_fluid(
     )
   ),
 
-  div(class = "app-footer",
-      # Organisation logo: www/partner_logo.(png|jpg|jpeg|svg) is gitignored,
-      # so a fork doesn't receive it - they get a placeholder instead and can
-      # drop in their own file under that name.
-      local({
-        logo <- list.files("www", pattern = "^partner_logo\\.(png|jpe?g|svg)$")
-        if (length(logo) > 0) {
-          div(class = "footer-partner", tags$img(src = logo[1], alt = "Partner organisations"))
-        } else {
-          div(class = "footer-partner placeholder",
-              title = "Add your organisation's logo as www/partner_logo.png (or .jpg / .svg)",
-              bsicons::bs_icon("image"), " Your organisation's logo")
-        }
-      }),
-      div(class = "footer-credit", "Designed and developed by the Minderoo OceanOmics Centre at UWA team"),
-      div(class = "footer-links",
-          tags$a(href = "https://www.uwa.edu.au/oceans-institute/partnerships/minderoo-oceanomics-centre-at-uwa",
-                 target = "_blank", rel = "noopener noreferrer", "Minderoo OceanOmics Centre at UWA"),
-          span(class = "footer-sep", "|"),
-          tags$a(href = MAT_REPO_URL, target = "_blank", rel = "noopener noreferrer", "Source code on GitHub")
-      ),
-      div(class = "footer-copyright",
-          paste0("Multi-Assay Toolkit (MAT) v", MAT_VERSION, " · © ", format(Sys.Date(), "%Y"),
-                 " Minderoo OceanOmics Centre at UWA · Open source under the MIT licence"))
-  )
+  app_footer_ui()
 )
 
 # =======================================================================
@@ -775,6 +771,11 @@ server <- function(input, output, session) {
   observeEvent(input$home_go_generate,  go_to_tab("Generate"))
   observeEvent(input$about_go_generate, go_to_tab("Generate"))
   observeEvent(input$home_go_about,     go_to_tab("About"))
+  observeEvent(input$footer_about,      go_to_tab("About"))
+  # Footer policy links (R/footer_policies.R)
+  observeEvent(input$footer_privacy, showModal(policy_modal("privacy")))
+  observeEvent(input$footer_terms,   showModal(policy_modal("terms")))
+  observeEvent(input$footer_data,    showModal(policy_modal("data")))
 
   observeEvent(input$auth_continue_guest, { rv$guest_mode <- TRUE })
   # From the header's "Log in" button while browsing as a guest - returns to
@@ -1872,7 +1873,7 @@ server <- function(input, output, session) {
   # exclude_name: when set (a flagged non-marine name), the popup footer gets
   # Exclude / Undo so the decision can be made right after reviewing it.
   # extended: TRUE for the Check buttons (WoRMS, OBIS, FishBase/SeaLifeBase,
-  # GBIF, Wikipedia tabs); FALSE for the search box (WoRMS + FishBase only).
+  # GBIF, Wikipedia tabs). The Search tab uses TRUE as well; FALSE (WoRMS + FishBase only) is unused.
   show_taxon_modal <- function(query, exclude_name = NULL, extended = TRUE) {
     query <- trimws(query %||% "")
     if (!nzchar(query)) {
@@ -1901,7 +1902,7 @@ server <- function(input, output, session) {
     ))
   }
   observeEvent(input$taxon_check, { show_taxon_modal(input$taxon_check) })
-  observeEvent(input$taxon_lookup_btn, { show_taxon_modal(input$taxon_query, extended = FALSE) })
+  observeEvent(input$taxon_lookup_btn, { show_taxon_modal(input$taxon_query, extended = TRUE) })
   observeEvent(input$non_marine_check, { show_taxon_modal(input$non_marine_check, exclude_name = input$non_marine_check) })
   # Changing what's excluded changes the data, so a QC result or eml.xml
   # generated before it is stale - clear them, like a WoRMS re-run does.
@@ -1973,17 +1974,6 @@ server <- function(input, output, session) {
               stat_box(n_synonyms, "Newer name in WoRMS"),
               stat_box(n_not_in_worms, "Not yet in WoRMS"),
               stat_box(nrow(r$non_marine_df), "Not marine in WoRMS")
-          )
-        )
-      ),
-
-      card(
-        card_header(bsicons::bs_icon("search", class = "section-icon"), "Check a name or AphiaID"),
-        card_body(
-          p(class = "muted", "Look up any scientific name or WoRMS AphiaID and compare it with WoRMS and FishBase without leaving the app. Every name below also has its own Check button."),
-          div(class = "d-flex gap-2 align-items-start",
-              div(style = "flex: 1;", textInput("taxon_query", NULL, placeholder = "e.g. Gadus morhua  or  126436", width = "100%")),
-              actionButton("taxon_lookup_btn", tagList(bsicons::bs_icon("search"), " Look up"), class = "btn-primary")
           )
         )
       ),
