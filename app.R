@@ -255,6 +255,7 @@ app_css <- "
   .auth-card .card-body { padding: 28px 30px 30px 30px; }
   .auth-card .form-label { font-weight: 600; font-size: 0.86rem; color: #0b0b0b; }
   .auth-card .form-control { padding: 10px 14px; }
+  .auth-card .shiny-input-container:not(.shiny-input-container-inline) { width: 100%; max-width: 100%; }
   .auth-card .form-group, .auth-card > .card-body > div.form-group { margin-bottom: 16px; }
   .auth-card a { color: #0e6a8a; font-weight: 600; text-decoration: none; }
   .auth-card a:hover { text-decoration: underline; }
@@ -521,6 +522,21 @@ ui <- page_fluid(
         document.querySelectorAll('input[type=file]').forEach(fixFileInputPosition);
       });
 
+      // 'Stay signed in': the token lives in this browser's localStorage and is
+      // sent once per connection; the server checks it (R/user_auth.R). Every
+      // storage call is guarded - private windows can block localStorage.
+      $(document).on('shiny:connected', function() {
+        var v = '';
+        try { v = window.localStorage.getItem('mat_session') || ''; } catch (e) {}
+        Shiny.setInputValue('auth_resume', v, {priority: 'event'});
+      });
+      Shiny.addCustomMessageHandler('mat_store_session', function(msg) {
+        try { window.localStorage.setItem('mat_session', msg.value); } catch (e) {}
+      });
+      Shiny.addCustomMessageHandler('mat_clear_session', function(msg) {
+        try { window.localStorage.removeItem('mat_session'); } catch (e) {}
+      });
+
       // Home/About buttons switch tabs; start the new tab at the top.
       Shiny.addCustomMessageHandler('scroll_top', function(msg) { window.scrollTo(0, 0); });
 
@@ -596,7 +612,7 @@ ui <- page_fluid(
   # Step 1-6 needs gating, since those steps only affect this browser's own
   # in-memory session, no shared state.
   conditionalPanel(
-    condition = "output.app_visible != true",
+    condition = "output.app_visible != true && output.auth_checked == true",
     div(class = "auth-wrap", div(style = "width: 100%; max-width: 440px;", uiOutput("auth_gate")))
   ),
 
@@ -711,6 +727,8 @@ server <- function(input, output, session) {
   rv <- reactiveValues(
     logged_in       = FALSE,
     logged_in_email = NULL,
+    auth_checked    = FALSE,  # TRUE once the browser has reported any "stay signed in" token
+    session_token   = NULL,   # this browser's stay-signed-in token, so logout can cancel it
     guest_mode      = FALSE,  # browsing without logging in - can use the wizard (steps 1-6) but not download/save/publish
     auth_view       = "login",  # login | signup | signup_verify | forgot | forgot_reset
     auth_pending_email = NULL,  # email the verify/reset form is currently acting on
@@ -831,6 +849,7 @@ server <- function(input, output, session) {
           login = tagList(
             textInput("auth_login_email", "Email", placeholder = paste0("you@", allowed_email_domain())),
             passwordInput("auth_login_password", "Password"),
+            checkboxInput("auth_remember", paste0("Keep me signed in on this browser for ", SESSION_TTL_DAYS, " days"), value = TRUE),
             div(class = "d-grid mt-2", actionButton("auth_login_submit", "Log in", class = "btn-primary")),
             p(class = "muted mt-3 text-center",
               actionLink("auth_goto_forgot", "Forgot password?"), " · ",
@@ -887,13 +906,53 @@ server <- function(input, output, session) {
   observeEvent(input$auth_login_submit, {
     res <- attempt_login(input$auth_login_email, input$auth_login_password)
     if (isTRUE(res$ok)) {
+      email <- tolower(trimws(input$auth_login_email))
       rv$logged_in <- TRUE
-      rv$logged_in_email <- tolower(trimws(input$auth_login_email))
+      rv$logged_in_email <- email
       rv$auth_message <- NULL
+      if (isTRUE(input$auth_remember)) {
+        tok <- tryCatch(create_login_token(email), error = function(e) NULL)
+        if (!is.null(tok)) {
+          rv$session_token <- tok$token
+          session$sendCustomMessage("mat_store_session", list(value = paste0(email, "|", tok$token)))
+        }
+      }
     } else {
       rv$auth_message <- list(type = "error", text = res$message)
     }
   })
+
+  # Sent by the browser on every (re)connect: "email|token", or "" if none.
+  # A valid token signs the user straight back in; an invalid or expired one
+  # is cleared from the browser. Until this arrives the login screen stays
+  # hidden (output.auth_checked), so a signed-in reload doesn't flash it.
+  observeEvent(input$auth_resume, {
+    v <- input$auth_resume %||% ""
+    if (nzchar(v) && accounts_enabled() && !isTRUE(rv$logged_in)) {
+      email <- sub("\\|.*$", "", v)
+      token <- sub("^[^|]*\\|", "", v)
+      ok <- tryCatch(check_login_token(email, token), error = function(e) FALSE)
+      if (ok) {
+        rv$logged_in <- TRUE
+        rv$logged_in_email <- tolower(trimws(email))
+        rv$guest_mode <- FALSE
+        rv$session_token <- token
+      } else {
+        session$sendCustomMessage("mat_clear_session", list())
+      }
+    }
+    rv$auth_checked <- TRUE
+  })
+  # Safety net: if the browser never reports (scripts blocked, very slow
+  # connection), show the login form anyway after 2.5 s.
+  local({
+    first <- TRUE
+    observe({
+      if (first) { first <<- FALSE; invalidateLater(2500) } else isolate(rv$auth_checked <- TRUE)
+    })
+  })
+  output$auth_checked <- reactive({ isTRUE(rv$auth_checked) })
+  outputOptions(output, "auth_checked", suspendWhenHidden = FALSE)
 
   observeEvent(input$auth_signup_submit, {
     if (!identical(input$auth_signup_password, input$auth_signup_password2)) {
@@ -965,6 +1024,10 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$logout_btn, {
+    # Logging out ends "stay signed in" for this browser.
+    if (!is.null(rv$session_token)) tryCatch(revoke_login_token(rv$logged_in_email, rv$session_token), error = function(e) NULL)
+    rv$session_token <- NULL
+    session$sendCustomMessage("mat_clear_session", list())
     rv$logged_in <- FALSE
     rv$logged_in_email <- NULL
     auth_switch_view("login")

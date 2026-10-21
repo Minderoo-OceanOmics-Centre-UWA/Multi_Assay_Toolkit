@@ -399,6 +399,62 @@ attempt_login <- function(email, password) {
 }
 
 # ---------------------------------------------------------------------
+# "Stay signed in" tokens
+# ---------------------------------------------------------------------
+# A reload starts a new Shiny session, so without this every reload means
+# logging in again. On login the browser gets a long random token (kept in
+# localStorage); the user store keeps only its sha256 hash and an expiry,
+# like the emailed codes above. On reload the app sends the token back and
+# check_login_token() signs the user in again. Tokens expire after
+# SESSION_TTL_DAYS, are removed on logout, and ALL of a user's tokens are
+# cleared by a password reset (sign out everywhere).
+SESSION_TTL_DAYS      <- 14
+MAX_SESSIONS_PER_USER <- 10   # one per browser/device; oldest dropped beyond this
+
+.live_sessions <- function(sessions, now = Sys.time()) {
+  Filter(function(s) !is.null(s$expires) && as.POSIXct(s$expires) > now, sessions %||% list())
+}
+
+#' New token for a verified user, or NULL. The plain token is returned once,
+#' for the browser - it is never stored server-side.
+create_login_token <- function(email) {
+  email <- tolower(trimws(email))
+  users <- .load_users()
+  rec <- users[[email]]
+  if (is.null(rec) || !isTRUE(rec$verified)) return(NULL)
+  token <- paste(as.character(sodium::random(32)), collapse = "")
+  expires <- Sys.time() + SESSION_TTL_DAYS * 86400
+  sessions <- c(.live_sessions(rec$sessions), list(list(token_hash = hash_code(token), expires = as.character(expires))))
+  rec$sessions <- utils::tail(sessions, MAX_SESSIONS_PER_USER)
+  users[[email]] <- rec
+  .save_users(users)
+  list(token = token, expires = expires)
+}
+
+#' TRUE if `token` is a live (unexpired) token for this verified user.
+check_login_token <- function(email, token) {
+  email <- tolower(trimws(email %||% ""))
+  if (!nzchar(email) || is.null(token) || !nzchar(token)) return(FALSE)
+  rec <- get_user(email)
+  if (is.null(rec) || !isTRUE(rec$verified)) return(FALSE)
+  h <- hash_code(token)
+  any(vapply(.live_sessions(rec$sessions), function(s) identical(s$token_hash, h), logical(1)))
+}
+
+#' Remove one token (logout on this browser). Expired tokens are tidied too.
+revoke_login_token <- function(email, token) {
+  email <- tolower(trimws(email %||% ""))
+  users <- .load_users()
+  rec <- users[[email]]
+  if (is.null(rec)) return(invisible(FALSE))
+  h <- if (is.null(token)) "" else hash_code(token)
+  rec$sessions <- Filter(function(s) !identical(s$token_hash, h), .live_sessions(rec$sessions))
+  users[[email]] <- rec
+  .save_users(users)
+  invisible(TRUE)
+}
+
+# ---------------------------------------------------------------------
 # Forgot / reset password
 # ---------------------------------------------------------------------
 start_password_reset <- function(email) {
@@ -452,6 +508,7 @@ reset_password <- function(email, code, new_password) {
   rec$pending_code_expires <- NULL
   rec$pending_purpose <- NULL
   rec$failed_login_count <- 0
+  rec$sessions <- NULL   # sign out every browser that stayed signed in
   if (!is_seed) rec$role <- "user"
   users[[email]] <- rec
   .save_users(users)
