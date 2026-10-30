@@ -116,6 +116,22 @@ taxon_check_button <- function(nm, from_input = NULL) {
 # blanks and anything else are left out. Fixed (not a user setting): GBIF's MDT
 # guide says only real biological/environmental samples should be published.
 SAMPLE_CATEGORY_KEEP <- "sample"
+# One sentence pointing to the raw sequence reads, for the eml.xml abstract
+# and methods. Names the archive and accession when the link makes that clear
+# (ENA / NCBI SRA / DDBJ); NULL when no link was given.
+raw_reads_sentence <- function(uri) {
+  if (is.null(uri) || length(uri) == 0 || is.na(uri) || !nzchar(trimws(uri))) return(NULL)
+  uri <- trimws(uri)
+  archive <- if (grepl("ebi\\.ac\\.uk", uri)) "the European Nucleotide Archive (ENA)"
+             else if (grepl("ncbi\\.nlm\\.nih\\.gov", uri)) "the NCBI Sequence Read Archive (SRA)"
+             else if (grepl("ddbj\\.nig\\.ac\\.jp", uri)) "the DNA Data Bank of Japan (DDBJ)"
+             else NULL
+  acc <- regmatches(uri, regexpr("(PRJ[EDN][A-Z][0-9]+|[EDS]RP[0-9]+)", uri))
+  if (is.null(archive)) return(paste0("Raw sequence reads for this dataset are publicly archived at: ", uri))
+  paste0("Raw sequence reads for this dataset are available from ", archive,
+         if (length(acc)) paste0(" under accession ", acc), ": ", uri)
+}
+
 # Card header with the standard icon tile, a title and an optional grey
 # subtitle underneath (styled by .section-title / .section-sub).
 section_header <- function(icon, title, subtitle = NULL) {
@@ -764,7 +780,8 @@ ui <- page_fluid(
                   textInput("associated_sequences_uri", width = "100%",
                     optional_label("Raw sequence archive link (ENA or SRA)",
                       "A link to where the raw sequencing reads are publicly archived, so others can re-analyse them.",
-                      " It's added to every record as associatedSequences.",
+                      " It's added to every record as associatedSequences, and as a sentence at the end of the dataset abstract",
+                      " (and methods) in eml.xml, so it shows on the dataset's OBIS and GBIF page.",
                       " Example: https://www.ebi.ac.uk/ena/browser/view/PRJEB107937 (an ENA project).",
                       " Only add it once the reads are public; leave blank if they haven't been released yet."),
                     value = "", placeholder = "e.g. https://www.ebi.ac.uk/ena/browser/view/PRJEB107937")
@@ -3202,6 +3219,14 @@ server <- function(input, output, session) {
     keywords <- trimws(strsplit(input$eml_keywords %||% "", ",")[[1]])
     abstract_paragraphs <- strsplit(input$eml_abstract %||% "", "\n")[[1]]
     method_steps <- c(strsplit(input$eml_methods %||% "", "\n")[[1]], uneven_samples_method_note(), name_choice_method_note(), exclusion_method_note())
+    # Raw-read link (Step 1): OBIS's dataset page shows the abstract but not
+    # the methods, so the link goes in both (unless already typed there).
+    reads_note <- raw_reads_sentence(rv$answers$associated_sequences_uri)
+    if (!is.null(reads_note)) {
+      uri <- rv$answers$associated_sequences_uri
+      if (!any(grepl(uri, abstract_paragraphs, fixed = TRUE))) abstract_paragraphs <- c(abstract_paragraphs, reads_note)
+      if (!any(grepl(uri, method_steps, fixed = TRUE)))        method_steps <- c(method_steps, reads_note)
+    }
 
     eml <- tryCatch(
       build_eml_xml(
