@@ -58,6 +58,7 @@ library(dplyr)
 library(tibble)
 
 source("R/faire_io.R")
+source("R/sample_split.R")
 source("R/build_event_core.R")
 
 result <- build_event_core(

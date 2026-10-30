@@ -174,7 +174,7 @@ With storage connected, anyone can still build and download an archive without a
 | **Publisher** | Everything a user can, plus move a draft into Publish |
 | **Admin** | Everything a publisher can, plus manage accounts and roles |
 
-A saved archive is either a timestamped draft (`Draft/<project>_<date>_<time>.zip`, never overwritten) or that project's published version (`Publish/<project>_CoreVersion.zip`). Both can be reviewed later from the app's Draft and Publish tabs without re-running anything.
+A saved archive is either a timestamped draft (`Draft/<project>_<date>_<time>.zip`, never overwritten) or that project's published version (`Publish/<project>_MAT_DwCA.zip`). Both can be reviewed later from the app's Draft and Publish tabs without re-running anything.
 
 #### Why sign-up is restricted
 

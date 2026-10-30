@@ -14,19 +14,19 @@ about_css <- "
   .about-wrap { max-width: 1040px; margin: 0 auto; padding: 28px 24px 70px 24px; }
   .about-hero {
     display: flex; gap: 34px; align-items: center; padding: 34px 38px; border-radius: 18px; color: #fff;
-    background: radial-gradient(circle at 18% 30%, #15808f 0%, #0c4766 45%, #061c33 100%);
-    box-shadow: 0 16px 40px rgba(6,28,51,0.18);
+    background: radial-gradient(circle at 18% 30%, #003087 0%, #1c2e5b 45%, #0a1b2e 100%);
+    box-shadow: 0 16px 40px rgba(10,27,46,0.18);
   }
-  .about-hero img { width: 150px; flex-shrink: 0; filter: drop-shadow(0 8px 18px rgba(0,0,0,0.35)); }
+  .about-hero img { width: 96px; flex-shrink: 0; filter: drop-shadow(0 8px 18px rgba(0,0,0,0.35)); }
   .about-hero h2 { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 8px 0; }
-  .about-hero .lead { color: #cdeff0; font-size: 1.05rem; margin-bottom: 16px; }
+  .about-hero .lead { color: #d6e6f5; font-size: 1.05rem; margin-bottom: 16px; }
   .about-pill {
     display: inline-block; font-size: 0.74rem; font-weight: 600; letter-spacing: 0.02em; padding: 4px 11px; margin: 0 6px 6px 0;
-    border-radius: 999px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.22); color: #e6fbf8;
+    border-radius: 999px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.22); color: #eef4fb;
   }
   .about-hero .btn { margin: 10px 8px 0 0; }
   .about-section { margin-top: 38px; }
-  .about-kicker { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #14a3a3; margin-bottom: 4px; }
+  .about-kicker { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #003087; margin-bottom: 4px; }
   .about-section h3 { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; margin-bottom: 12px; }
   .about-section p { color: #3d3c38; line-height: 1.65; }
   .about-table { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid #eceae4; border-radius: 12px; overflow: hidden; font-size: 0.9rem; }
@@ -34,19 +34,19 @@ about_css <- "
   .about-table tr:last-child td { border-bottom: none; }
   .about-table thead th { background: #f4f7f9; font-weight: 700; color: #0b0b0b; }
   .about-table td:first-child { color: #3d3c38; font-weight: 600; width: 55%; }
-  .about-table .mat-col { background: #f1fbfa; font-weight: 600; color: #0a3d62; }
+  .about-table .mat-col { background: #f0f4fb; font-weight: 600; color: #1c2e5b; }
 
   .arch { background: #fff; border: 1px solid #eceae4; border-radius: 14px; padding: 24px; }
   .arch-core {
     max-width: 420px; margin: 0 auto; text-align: center; color: #fff; border-radius: 12px; padding: 14px 18px;
-    background: linear-gradient(160deg, #0a3d62 0%, #14a3a3 100%); box-shadow: 0 6px 16px rgba(10,61,98,0.2);
+    background: linear-gradient(160deg, #1c2e5b 0%, #003087 100%); box-shadow: 0 6px 16px rgba(28,46,91,0.2);
   }
   .arch-core small, .arch-box small { display: block; opacity: 0.85; font-size: 0.78rem; font-weight: 400; }
   .arch-link { text-align: center; font-size: 0.74rem; color: #898781; font-family: monospace; margin: 8px 0; }
   .arch-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .arch-col { display: flex; flex-direction: column; align-items: stretch; }
   .arch-box { border-radius: 10px; padding: 11px 12px; text-align: center; font-weight: 700; font-size: 0.88rem; }
-  .arch-occ { background: #eef7f9; border: 1px solid #cde4ea; color: #0b5672; }
+  .arch-occ { background: #eef3fb; border: 1px solid #cfdcf0; color: #1c2e5b; }
   .arch-dna { background: #fff7e8; border: 1px solid #f3dfb5; color: #8a5a00; }
   .arch-col.more .arch-box { background: #fafaf8; border: 1px dashed #c9c7bf; color: #898781; }
   .arch-assay { text-align: center; font-size: 0.78rem; font-weight: 700; color: #63625c; margin-bottom: 6px; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -55,7 +55,7 @@ about_css <- "
   .step-card { background: #fff; border: 1px solid #eceae4; border-radius: 12px; padding: 16px 16px 14px 16px; }
   .step-card .num {
     width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-    background: #0e6a8a; color: #fff; font-weight: 700; font-size: 0.82rem; margin-right: 8px;
+    background: #003087; color: #fff; font-weight: 700; font-size: 0.82rem; margin-right: 8px;
   }
   .step-card .title { font-weight: 700; }
   .step-card p { font-size: 0.86rem; margin: 8px 0 0 0; color: #55544e; line-height: 1.5; }
@@ -65,42 +65,52 @@ about_css <- "
   .feature-grid.two-col { grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); }
   .feature .ficon {
     width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-    background: #e8f6f5; color: #0f7a8c; font-size: 1.05rem;
+    background: #e5ecf7; color: #003087; font-size: 1.05rem;
   }
   .feature b { display: block; margin-bottom: 2px; }
   .feature span { font-size: 0.86rem; color: #55544e; line-height: 1.5; }
   .checklist { background: #fff; border: 1px solid #eceae4; border-radius: 12px; padding: 16px 20px; }
   .checklist li { margin: 4px 0; color: #3d3c38; }
   .standards a { font-weight: 600; text-decoration: none; }
-  .about-code { margin-top: 14px; background: #061c33; color: #bff3ec; border-radius: 10px; padding: 14px 18px; font-size: 0.84rem; white-space: pre-wrap; }
-  .cite-box { background: #fff; border-left: 4px solid #14a3a3; border-radius: 8px; padding: 14px 18px; font-size: 0.9rem; color: #3d3c38; }
+  .about-code { margin-top: 14px; background: #0a1b2e; color: #bfe9ff; border-radius: 10px; padding: 14px 18px; font-size: 0.84rem; white-space: pre-wrap; }
+  .cite-box { background: #fff; border-left: 4px solid #daaa00; border-radius: 8px; padding: 14px 18px; font-size: 0.9rem; color: #3d3c38; }
 
   /* Home tab */
-  .home-wrap { max-width: 1040px; margin: 0 auto; padding: 30px 24px 60px 24px; }
+  .home-wrap { max-width: 1040px; margin: 0 auto; padding: 4px 24px 60px 24px; }
   .home-hero {
-    position: relative; overflow: hidden; text-align: center; color: #fff; border-radius: 22px; padding: 54px 32px 50px 32px;
-    background: radial-gradient(circle at 50% 22%, #15808f 0%, #0c4766 46%, #061c33 100%);
-    box-shadow: 0 20px 50px rgba(6,28,51,0.22);
+    position: relative; z-index: 1; overflow: hidden; width: 100%; text-align: center; color: #0a1b2e; padding: 52px 24px 50px 24px;
+    background: #ffffff; border-bottom: 1px solid #e3e6ea;
   }
-  .home-hero img { width: 170px; filter: drop-shadow(0 10px 22px rgba(0,0,0,0.4)); margin-bottom: 18px; }
-  .home-hero .eyebrow { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #8fe3dc; }
-  .home-hero h2 { font-size: 2.3rem; font-weight: 800; letter-spacing: -0.02em; margin: 6px 0 12px 0; }
-  .home-hero .lead { color: #cdeff0; font-size: 1.08rem; max-width: 640px; margin: 0 auto 26px auto; line-height: 1.6; }
+  /* Optional looping background video, faint so the white banner and text stay readable. */
+  .home-hero .home-hero-video {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.12; pointer-events: none; z-index: 0;
+  }
+  .home-hero > :not(.home-hero-video) { position: relative; z-index: 1; }
+  /* The logo JPG has a white background; multiply drops the white so it sits on the video. */
+  .home-hero .home-partner { mix-blend-mode: multiply; }
+  @media (prefers-reduced-motion: reduce) { .home-hero .home-hero-video { display: none; } }
+  .home-hero .home-partner { display: block; width: fit-content; max-width: 100%; margin: 0 auto 22px auto; line-height: 0; }
+  .home-hero .home-partner img { width: 360px; max-width: 100%; height: auto; }
+  .home-hero .home-hex { display: block; width: 84px; margin: 0 auto 14px auto; filter: drop-shadow(0 6px 12px rgba(10,27,46,0.22)); }
+  .home-hero .home-hex.solo { width: 170px; margin-bottom: 18px; }
+  .home-hero .eyebrow { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #003087; }
+  .home-hero h2 { font-size: 2.3rem; font-weight: 800; letter-spacing: -0.02em; margin: 6px 0 12px 0; color: #1c2e5b; }
+  .home-hero .lead { color: #475467; font-size: 1.08rem; max-width: 640px; margin: 0 auto 26px auto; line-height: 1.6; }
   .home-hero .btn-lg { padding: 12px 26px; font-weight: 700; border-radius: 12px; margin: 4px 6px; }
-  .home-hero .btn-light, .about-hero .btn-light { background: #ffffff; border-color: #ffffff; color: #071d33; }
-  .home-hero .btn-light:hover, .about-hero .btn-light:hover { background: #e5f1f4; border-color: #e5f1f4; color: #071d33; }
-  .home-hero .home-note { margin-top: 18px; font-size: 0.82rem; color: #9fd8d6; }
+  .about-hero .btn-light { background: #ffffff; border-color: #ffffff; color: #0a1b2e; }
+  .about-hero .btn-light:hover { background: #e5ecf7; border-color: #e5ecf7; color: #0a1b2e; }
+  .home-hero .home-note { margin-top: 18px; font-size: 0.82rem; color: #667085; }
   .home-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 26px; }
   .home-card { background: #fff; border: 1px solid #eceae4; border-radius: 14px; padding: 20px; }
   .home-card .ficon {
     width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
-    background: #e8f6f5; color: #0f7a8c; font-size: 1.15rem; margin-bottom: 12px;
+    background: #e5ecf7; color: #003087; font-size: 1.15rem; margin-bottom: 12px;
   }
   .home-card b { display: block; font-size: 1rem; margin-bottom: 4px; }
   .home-card span { font-size: 0.88rem; color: #55544e; line-height: 1.55; }
   .home-flow { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 30px; }
-  .home-flow .stage { background: #fff; border: 1px solid #eceae4; border-radius: 999px; padding: 9px 18px; font-weight: 600; font-size: 0.9rem; color: #0a3d62; }
-  .home-flow .stage .n { display: inline-block; width: 22px; height: 22px; line-height: 22px; border-radius: 50%; background: #14a3a3; color: #fff; font-size: 0.75rem; text-align: center; margin-right: 8px; }
+  .home-flow .stage { background: #fff; border: 1px solid #eceae4; border-radius: 999px; padding: 9px 18px; font-weight: 600; font-size: 0.9rem; color: #1c2e5b; }
+  .home-flow .stage .n { display: inline-block; width: 22px; height: 22px; line-height: 22px; border-radius: 50%; background: #003087; color: #fff; font-size: 0.75rem; text-align: center; margin-right: 8px; }
   .home-flow .arrow { color: #a9a89f; }
 
   @media (max-width: 720px) {
@@ -118,18 +128,29 @@ home_page_ui <- function() {
   stage <- function(n, text) span(class = "stage", span(class = "n", n), text)
   arrow <- span(class = "arrow", bsicons::bs_icon("arrow-right"))
 
-  div(class = "home-wrap",
+  tagList(
+    # Full-width white banner (outside .home-wrap, which caps the width).
     div(class = "home-hero",
-      tags$img(src = "mat_hex.svg", alt = "Multi-Assay Toolkit (MAT) logo"),
+      # www/hero_video.mp4 is gitignored (like page_bg.jpg), so a fork just gets the plain white banner.
+      if (file.exists("www/hero_video.mp4"))
+        tags$video(class = "home-hero-video", autoplay = NA, muted = NA, loop = NA, playsinline = NA,
+                   preload = "auto", `aria-hidden` = "true",
+                   tags$source(src = "hero_video.mp4", type = "video/mp4")),
+      # The centre's logo is the main image; the MAT icon is a small mark above the title.
+      if (!is.null(partner_logo_src()))
+        div(class = "home-partner", tags$img(src = partner_logo_src(), alt = PARTNER_LOGO_ALT)),
+      tags$img(src = "mat_hex.svg", alt = "Multi-Assay Toolkit (MAT) logo",
+               class = if (is.null(partner_logo_src())) "home-hex solo" else "home-hex"),
       div(class = "eyebrow", "Welcome to"),
       h2("Multi-Assay Toolkit (MAT)"),
       div(class = "lead",
           "Turn FAIRe eDNA metabarcoding files into one Darwin Core Archive, with every assay in a single dataset, ready for OBIS and GBIF."),
-      actionButton("home_go_generate", tagList("Generate an archive ", bsicons::bs_icon("arrow-right")), class = "btn-light btn-lg"),
-      actionButton("home_go_about", tagList(bsicons::bs_icon("info-circle"), " How it works"), class = "btn-outline-light btn-lg"),
+      actionButton("home_go_generate", tagList("Generate an archive ", bsicons::bs_icon("arrow-right")), class = "btn-primary btn-lg"),
+      actionButton("home_go_about", tagList(bsicons::bs_icon("info-circle"), " How it works"), class = "btn-outline-primary btn-lg"),
       div(class = "home-note", "No account needed to build and download an archive. Open source under the MIT licence.")
     ),
 
+    div(class = "home-wrap",
     div(class = "home-flow",
       stage(1, "Upload FAIRe files"), arrow,
       stage(2, "Review and check"), arrow,
@@ -143,6 +164,7 @@ home_page_ui <- function() {
                 "If your data follows the FAIRe standard, there is nothing to reformat: upload one workbook per assay."),
       home_card("shield-check", "Checked before you publish",
                 "Names are matched to WoRMS with a review step, and OBIS quality checks run before you upload to an IPT.")
+    )
     )
   )
 }
@@ -241,7 +263,7 @@ about_page_ui <- function() {
         tags$ul(style = "margin: 8px 0 0 0;",
           tags$li("One FAIRe .xlsx workbook per assay, all describing the same samples."),
           tags$li("Files of one reference type only: all curated-database files, or all NCBI nt files."),
-          tags$li("The ", code("samp_category"), " value that marks a real sample (controls are left out)."),
+          tags$li("A ", code("samp_category"), " column in sampleMetadata with real samples marked ", code("sample"), " (MAT removes controls automatically)."),
           tags$li("The accession of your raw reads (for example ENA or SRA), and the details for the dataset metadata.")
         )
       ),
@@ -294,7 +316,7 @@ about_page_ui <- function() {
           tags$tr(tags$td("Which assays, and which projectMetadata columns belong to each (including combined assays such as MiFish-U + MiFish-E2)"),
                   tags$td("In the app, Step 3. Any number of assays.")),
           tags$tr(tags$td("Which samples are real and which are controls"),
-                  tags$td("In the app, Step 1 (the ", code("samp_category"), " value).")),
+                  tags$td("Automatic: rows whose ", code("samp_category"), " is ", code("sample"), " are published; Step 1 shows what was found.")),
           tags$tr(tags$td("Dataset metadata: people, abstract, methods, licence"),
                   tags$td("In the app, Step 6, or fill in the Excel template it provides and upload it.")),
           tags$tr(tags$td("Storage bucket and AWS keys (optional)"),

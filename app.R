@@ -40,6 +40,7 @@ library(zip)
 if (file.exists(".Renviron")) readRenviron(".Renviron")
 
 source("R/faire_io.R")
+source("R/sample_split.R")
 source("R/validate_faire_files.R")
 source("R/suggest_assay_mapping.R")
 source("R/detect_assay_name.R")
@@ -111,6 +112,45 @@ taxon_check_button <- function(nm, from_input = NULL) {
 # Defined once, used both as the Step 6 license selectInput's choices
 # (label = name, value = URL) and to look the label back up from the
 # chosen URL when generating eml.xml.
+# Only rows whose FAIRe samp_category is exactly this are published; controls,
+# blanks and anything else are left out. Fixed (not a user setting): GBIF's MDT
+# guide says only real biological/environmental samples should be published.
+SAMPLE_CATEGORY_KEEP <- "sample"
+# Card header with the standard icon tile, a title and an optional grey
+# subtitle underneath (styled by .section-title / .section-sub).
+section_header <- function(icon, title, subtitle = NULL) {
+  card_header(bsicons::bs_icon(icon, class = "section-icon"),
+              div(class = "section-title", span(title), if (!is.null(subtitle)) span(class = "section-sub", subtitle)))
+}
+
+# Animated DNA double helix (pure CSS): each base pair is two dots that swap
+# sides, joined by a rung that shrinks as the strands cross.
+dna_helix <- function(n = 12) {
+  span(class = "dna-helix", `aria-hidden` = "true",
+       lapply(seq_len(n) - 1, function(i) span(class = "bp", style = paste0("--i:", i), span(class = "rung"))))
+}
+
+# A uiOutput that shows the DNA loader until its first result arrives (Shiny
+# replaces the contents on render). While it re-calculates later, CSS
+# (.loading-output.recalculating) fades the old result and overlays a spinner.
+loading_output <- function(id, text = "Loading...") {
+  div(id = id, class = "shiny-html-output loading-output",
+    div(class = "mat-loader", role = "status", `aria-live` = "polite",
+      dna_helix(), span(class = "mat-loader-text", text)))
+}
+
+# Field label for an optional input: "Name (optional) (i)", where the (i)
+# icon shows an explanation and example on hover or tap.
+optional_label <- function(text, ...) {
+  tags$span(text, " ", tags$span(class = "optional-tag", "(optional)"), " ",
+    bslib::tooltip(
+      tags$span(class = "info-tip", tabindex = "0", role = "button", `aria-label` = paste("About", text),
+                bsicons::bs_icon("info-circle")),
+      paste0(...), placement = "right"))
+}
+
+MDT_CONTROLS_GUIDE_URL <-"https://docs.gbif-uat.org/mdt-user-guide/en/#before_you_start"
+
 EML_LICENSE_CHOICES <- c(
   "CC0 1.0 (Public Domain)" = "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
   "CC-BY 4.0"               = "https://creativecommons.org/licenses/by/4.0/legalcode",
@@ -123,15 +163,16 @@ EML_LICENSE_CHOICES <- c(
 options(shiny.maxRequestSize = 100 * 1024^2)
 
 # ---------------------------------------------------------------------
-# Theme - same palette as the README charts (validated categorical/
-# sequential blue, #0e6a8a) for a consistent brand between the app and
-# the docs.
+# Theme - Oceans Institute brand colours (OI Branding Colours 2026):
+# UWA Blue #003087 primary, OI Dark Blue #1c2e5b dark text/hover,
+# OI Extra Dark Blue #0a1b2e header/footer, OI Cyan #62d5ff and
+# UWA Gold #daaa00 as small accents only.
 # ---------------------------------------------------------------------
 app_theme <- bs_theme(
   version      = 5,
   bg           = "#f5f7fa",
   fg           = "#0b0b0b",
-  primary      = "#0e6a8a",
+  primary      = "#003087",
   secondary    = "#898781",
   success      = "#0ca30c",
   warning      = "#fab219",
@@ -162,14 +203,13 @@ app_css <- "
 
   /* Header: one straight, solid band (no wave or decoration). */
   .app-header {
-    background: #071d33; color: #ffffff; padding: 12px 32px; display: flex; align-items: center; gap: 14px;
-    border-bottom: 1px solid #0f2f4d;
+    background: #0a1b2e; color: #ffffff; padding: 12px 32px; display: flex; align-items: center; gap: 14px;
+    border-bottom: 3px solid #daaa00;
   }
-  .app-header .brand-mark { flex-shrink: 0; line-height: 0; }
-  .app-header h1 { font-size: 1.08rem; font-weight: 700; margin: 0; letter-spacing: -0.005em; }
-  .app-header p { color: #93b3c6; margin: 2px 0 0 0; font-size: 0.8rem; }
+  .app-header .brand-mark { flex-shrink: 0; line-height: 0; }  .app-header h1 { font-size: 1.08rem; font-weight: 700; margin: 0; letter-spacing: -0.005em; }
+  .app-header p { color: #a9bbd6; margin: 2px 0 0 0; font-size: 0.8rem; }
   .app-header .header-spacer { flex: 1; }
-  .restart-btn { color: #d4e3ec !important; border-color: rgba(255,255,255,0.22) !important; }
+  .restart-btn { color: #d6e0ee !important; border-color: rgba(255,255,255,0.22) !important; }
   .restart-btn:hover { color: #fff !important; border-color: rgba(255,255,255,0.6) !important; background: rgba(255,255,255,0.08) !important; }
 
   /* White text on blue buttons, and white cards on the grey page. */
@@ -182,8 +222,8 @@ app_css <- "
     border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none;
     color: #4f5b66; font-weight: 600; font-size: 0.9rem; padding: 14px 14px 12px 14px; margin-bottom: -1px;
   }
-  #main_tab.nav-tabs .nav-link:hover { color: #0b2540; border-bottom-color: #cdd4db; }
-  #main_tab.nav-tabs .nav-link.active { color: #0b5672; border-bottom-color: #0e6a8a; background: none; }
+  #main_tab.nav-tabs .nav-link:hover { color: #0a1b2e; border-bottom-color: #cdd4db; }
+  #main_tab.nav-tabs .nav-link.active { color: #1c2e5b; border-bottom-color: #003087; background: none; }
 
   .stepper-flex { display: flex; align-items: flex-start; padding: 26px 48px 22px 48px; background: #ffffff; border-bottom: 1px solid #e3e6ea; }
   .step-item { display: flex; flex-direction: column; align-items: center; }
@@ -191,7 +231,7 @@ app_css <- "
     width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
     font-weight: 700; font-size: 0.82rem; border: 2px solid #dedcd3; color: #a9a89f; background: #fff; transition: all .15s ease;
   }
-  .step-circle.active { border-color: #0e6a8a; background: #0e6a8a; color: #fff; box-shadow: 0 0 0 5px rgba(14,106,138,0.14); }
+  .step-circle.active { border-color: #003087; background: #003087; color: #fff; box-shadow: 0 0 0 5px rgba(0,48,135,0.14); }
   .step-circle.done { border-color: #0ca30c; background: #0ca30c; color: #fff; }
   .step-circle.disabled { border-color: #eceae4; color: #c3c2b7; }
   .step-label { font-size: 0.74rem; margin-top: 7px; color: #a9a89f; text-align: center; max-width: 84px; }
@@ -207,7 +247,7 @@ app_css <- "
   .card:hover { box-shadow: 0 1px 2px rgba(11,11,11,0.04), 0 6px 16px rgba(11,11,11,0.06); }
   .card-header { background: #fff; font-weight: 600; font-size: 0.94rem; padding: 14px 20px; display:flex; align-items:center; gap:8px; }
   .card-body { padding: 20px; }
-  .section-icon { color: #0e6a8a; }
+  .section-icon { color: #003087; }
 
   .issue-card { border-left: 4px solid #d03b3b; }
   .issue-card.warning { border-left-color: #fab219; }
@@ -217,7 +257,7 @@ app_css <- "
   .assay-col-choices .checkbox { margin: 0; }
   .assay-col-choices .checkbox label { display: flex; gap: 10px; align-items: flex-start; width: 100%; height: 100%; padding: 10px 12px;
     border: 1px solid #e3e1da; border-radius: 8px; background: #fff; cursor: pointer; }
-  .assay-col-choices .checkbox label:has(input:checked) { border-color: #0e6a8a; background: #eef7f9; }
+  .assay-col-choices .checkbox label:has(input:checked) { border-color: #003087; background: #eef3fb; }
   .assay-col-choices .checkbox input { margin-top: 4px; flex-shrink: 0; }
   .assay-col-choice { font-size: 0.92rem; line-height: 1.45; }
   .assay-col-id { display: inline-block; font-size: 0.75rem; color: #6c757d; background: #f1f0ec; border-radius: 4px; padding: 0 6px; margin-right: 6px; }
@@ -241,15 +281,15 @@ app_css <- "
      anything else, so it gets its own (more deliberate) look rather than
      just reusing the plain default .card used everywhere else. */
   .auth-wrap { min-height: calc(100vh - 250px); display: flex; align-items: center; justify-content: center; padding: 36px 16px; }
-  .auth-card { border: none; box-shadow: 0 2px 8px rgba(11,11,11,0.05), 0 16px 40px rgba(10,61,98,0.09); overflow: hidden; }
-  .auth-card:hover { transform: none; box-shadow: 0 2px 8px rgba(11,11,11,0.05), 0 16px 40px rgba(10,61,98,0.09); }
+  .auth-card { border: none; box-shadow: 0 2px 8px rgba(11,11,11,0.05), 0 16px 40px rgba(28,46,91,0.09); overflow: hidden; }
+  .auth-card:hover { transform: none; box-shadow: 0 2px 8px rgba(11,11,11,0.05), 0 16px 40px rgba(28,46,91,0.09); }
   .auth-card .card-header {
     display: flex; flex-direction: column; align-items: center; gap: 10px;
     padding: 30px 24px 22px 24px; text-align: center; border-bottom: 1px solid #eceae4;
   }
   .auth-card .card-header .auth-icon {
     width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(160deg, #0a3d62 0%, #14a3a3 100%); color: #fff; font-size: 1.35rem;
+    background: linear-gradient(160deg, #1c2e5b 0%, #003087 100%); color: #fff; font-size: 1.35rem;
   }
   .auth-card .card-header .auth-title { font-size: 1.12rem; font-weight: 700; letter-spacing: -0.01em; color: #0b0b0b; }
   .auth-card .card-body { padding: 28px 30px 30px 30px; }
@@ -257,7 +297,7 @@ app_css <- "
   .auth-card .form-control { padding: 10px 14px; }
   .auth-card .shiny-input-container:not(.shiny-input-container-inline) { width: 100%; max-width: 100%; }
   .auth-card .form-group, .auth-card > .card-body > div.form-group { margin-bottom: 16px; }
-  .auth-card a { color: #0e6a8a; font-weight: 600; text-decoration: none; }
+  .auth-card a { color: #003087; font-weight: 600; text-decoration: none; }
   .auth-card a:hover { text-decoration: underline; }
   .auth-guest-box {
     margin-top: 22px; padding: 14px 16px; border-radius: 10px;
@@ -265,21 +305,21 @@ app_css <- "
   }
 
   .app-footer {
-    background: #071d33; border-top: 1px solid #0f2f4d;
-    color: #cfe9ec; padding: 22px 32px; margin-top: auto; flex-shrink: 0;
+    background: #0a1b2e; border-top: 1px solid #1c2e5b;
+    color: #d6e6f5; padding: 22px 32px; margin-top: auto; flex-shrink: 0;
     display: flex; flex-direction: column; align-items: center; gap: 6px;
     text-align: center; font-size: 0.82rem;
   }
-  .app-footer a { color: #8fd0d8; text-decoration: none; }
+  .app-footer a { color: #62d5ff; text-decoration: none; }
   .app-footer a:hover { color: #ffffff; text-decoration: underline; }
   .app-footer .footer-credit { color: #ffffff; font-weight: 600; font-size: 0.86rem; }
   .app-footer .footer-links { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; }
   .app-footer .footer-sep { color: rgba(255,255,255,0.25); }
-  .app-footer .footer-copyright { color: #7f9fb3; font-size: 0.76rem; margin-top: 4px; }
+  .app-footer .footer-copyright { color: #8b9bb8; font-size: 0.76rem; margin-top: 4px; }
   .footer-partner { background: #ffffff; border-radius: 10px; padding: 10px 22px; margin-bottom: 12px; line-height: 0; }
   .footer-partner img { height: 54px; max-width: 100%; }
   .footer-partner.placeholder {
-    background: transparent; border: 1.5px dashed rgba(255,255,255,0.28); color: #7f9fb3;
+    background: transparent; border: 1.5px dashed rgba(255,255,255,0.28); color: #8b9bb8;
     line-height: 1.4; font-size: 0.8rem; padding: 14px 26px;
   }
 
@@ -289,9 +329,9 @@ app_css <- "
   body {
     background-color: #f3f6f9;
     background-image:
-      radial-gradient(1100px 520px at 8% -8%, rgba(14,106,138,0.11), transparent 62%),
-      radial-gradient(900px 480px at 96% -4%, rgba(20,163,163,0.12), transparent 60%),
-      linear-gradient(180deg, #eef3f8 0%, #f3f6f9 420px);
+      radial-gradient(1100px 520px at 8% -8%, rgba(0,48,135,0.11), transparent 62%),
+      radial-gradient(900px 480px at 96% -4%, rgba(98,213,255,0.12), transparent 60%),
+      linear-gradient(180deg, #eef2f9 0%, #f3f6f9 420px);
     background-attachment: fixed;
   }
 
@@ -305,12 +345,36 @@ app_css <- "
      8-10px radii, one accent colour (the primary blue). */
   .content-wrap .card { border: 1px solid #e4e7ec; border-radius: 12px; box-shadow: 0 1px 2px rgba(16,24,40,0.04); overflow: hidden; }
   .content-wrap .card:hover { box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 4px 12px rgba(16,24,40,0.05); transform: none; }
-  .card-header { background: #ffffff; border-bottom: 1px solid #eef0f3; padding: 15px 22px; font-size: 0.97rem; font-weight: 700; color: #101828; gap: 12px; }
-  .card-header .section-icon {
-    width: 32px !important; height: 32px !important; padding: 7px; border-radius: 9px; flex-shrink: 0;
-    background: #e5f1f4; color: #0b5672;
+  /* Card headers: thin brand accent along the top, soft tinted header,
+     solid UWA Blue icon tile, larger title, optional grey subtitle
+     (section_header()). Amber versions for the Step 4 review cards. */
+  .content-wrap .card { position: relative; }
+  .content-wrap .card:has(> .card-header)::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; z-index: 1;
+    background: linear-gradient(90deg, #003087 0%, #1c6fd1 55%, #62d5ff 100%);
   }
-  .card-body { padding: 22px; }
+  /* .content-wrap .bslib-card > .card-header beats bslib's own
+     .bslib-card .card-header (which halves the padding and sets a 4px gap). */
+  .card-header,
+  .content-wrap .bslib-card > .card-header {
+    display: flex; align-items: center; gap: 14px; min-height: 76px;
+    padding: 18px 24px; padding-block: 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f6f9fd 100%); border-bottom: 1px solid #e6ecf5;
+    font-size: 1.05rem; font-weight: 700; color: #0a1b2e; letter-spacing: -0.01em; line-height: 1.3;
+  }
+  .card-header .section-icon {
+    width: 40px !important; height: 40px !important; padding: 10px; border-radius: 11px; flex-shrink: 0;
+    background: linear-gradient(145deg, #003087 0%, #1c2e5b 100%); color: #ffffff;
+    box-shadow: 0 4px 10px rgba(0,48,135,0.22), inset 0 1px 0 rgba(255,255,255,0.18);
+  }
+  .card-header .section-title { display: flex; flex-direction: column; line-height: 1.25; }
+  .card-header .section-sub { font-size: 0.84rem; font-weight: 400; color: #667085; letter-spacing: 0; margin-top: 3px; line-height: 1.4; }
+  .issue-card.warning:has(> .card-header)::before { background: linear-gradient(90deg, #dc8a00 0%, #f5a524 100%); }
+  .issue-card.warning .card-header { background: linear-gradient(180deg, #ffffff 0%, #fffaf0 100%); }
+  .issue-card.warning .card-header .section-icon {
+    background: linear-gradient(145deg, #f5a524 0%, #c27800 100%); box-shadow: 0 4px 10px rgba(194,120,0,0.25);
+  }
+  .card-body, .content-wrap .bslib-card > .card-body { padding: 22px 24px; }
 
   .control-label, .form-label { font-size: 0.85rem; font-weight: 600; color: #344054; margin-bottom: 6px; }
   .form-group { margin-bottom: 16px; }
@@ -321,7 +385,7 @@ app_css <- "
   }
   .form-control::placeholder { color: #98a2b3; }
   .form-control:focus, .form-select:focus, .selectize-input.focus {
-    border-color: #0e6a8a; box-shadow: 0 0 0 4px rgba(14,106,138,0.14); outline: none;
+    border-color: #003087; box-shadow: 0 0 0 4px rgba(0,48,135,0.14); outline: none;
   }
   .form-control[readonly] { background-color: #ffffff; }
   .muted { color: #667085; font-size: 0.85rem; }
@@ -334,7 +398,7 @@ app_css <- "
   .input-group .btn-file:hover { background: #f2f4f7; color: #101828; }
   .input-group > .form-control { border-radius: 0 8px 8px 0 !important; border-left: none; }
   .shiny-file-input-progress { border-radius: 999px; background: #eef0f3; margin-top: 8px; }
-  .shiny-file-input-progress .progress-bar { background: #0e6a8a; border-radius: 999px; font-size: 0.72rem; }
+  .shiny-file-input-progress .progress-bar { background: #003087; border-radius: 999px; font-size: 0.72rem; }
 
   /* Curated / nt choice as a two-option switch */
   .choice-switch { display: inline-flex; gap: 2px; background: #f2f4f7; padding: 3px; border-radius: 9px; }
@@ -347,7 +411,7 @@ app_css <- "
   #reference_db .radio-inline input { position: absolute; opacity: 0; pointer-events: none; }
   #reference_db .radio-inline span { display: block; padding: 7px 16px; border-radius: 7px; font-size: 0.88rem; font-weight: 600; color: #475467; cursor: pointer; transition: all .15s ease; }
   #reference_db .radio-inline:has(input:checked) span { background: #ffffff; color: #101828; box-shadow: 0 1px 3px rgba(16,24,40,0.14); }
-  #reference_db .radio-inline:has(input:focus-visible) span { outline: 2px solid #0e6a8a; }
+  #reference_db .radio-inline:has(input:focus-visible) span { outline: 2px solid #003087; }
 
   /* One assay's upload row */
   .assay-row { background: #ffffff; border: 1px solid #e4e7ec; border-radius: 10px; padding: 16px 18px 2px 18px; margin-bottom: 12px; }
@@ -359,14 +423,63 @@ app_css <- "
 
   /* 'Add another ...' buttons as a dashed drop-in row */
   .content-wrap [id^='add_'].btn {
-    display: block; width: 100%; border: 1.5px dashed #c4cdd6; background: #fafbfc; color: #0b5672;
+    display: block; width: 100%; border: 1.5px dashed #c4cdd6; background: #fafbfc; color: #1c2e5b;
     font-weight: 600; border-radius: 10px; padding: 10px;
   }
-  .content-wrap [id^='add_'].btn:hover { border-color: #0e6a8a; background: #eef7f9; color: #0b5672; }
+  .content-wrap [id^='add_'].btn:hover { border-color: #003087; background: #eef3fb; color: #1c2e5b; }
 
   /* Notices */
   .content-wrap .alert { border: 1px solid; border-left-width: 4px; border-radius: 10px; font-size: 0.9rem; line-height: 1.55; }
-  .content-wrap .alert-info    { background: #eef7f9; border-color: #cde4ea; border-left-color: #0e6a8a; color: #0b3a4d; }
+  /* Step 1 Sample handling card */
+  .auto-callout { display: flex; gap: 12px; align-items: flex-start; background: #eef3fb; border: 1px solid #cfdcf0;
+    border-left: 4px solid #003087; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; color: #0a1b2e; line-height: 1.55; }
+  .auto-callout .bi { color: #003087; font-size: 1.25rem; flex-shrink: 0; margin-top: 2px; }
+  .split-heading { font-weight: 700; color: #1c2e5b; margin: 6px 0 8px 0; }
+  .split-steps { padding-left: 1.2rem; margin-bottom: 6px; line-height: 1.6; }
+  .split-empty { border: 1.5px dashed #c4cdd6; border-radius: 10px; padding: 12px 16px; color: #475467; background: #fafbfc; }
+  .split-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .split-tile { border-radius: 10px; padding: 12px 16px; border: 1px solid #e4e7ec; color: #344054; }
+  .split-tile .num { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
+  .split-tile.kept { background: #ecfdf3; border-color: #c6f0d6; } .split-tile.kept .num { color: #05603a; }
+  .split-tile.removed { background: #f5f7fa; } .split-tile.removed .num { color: #344054; }
+  .split-table { max-width: 560px; margin-bottom: 10px; }
+  .split-match { border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; font-weight: 600; }
+  .optional-fields { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #d0d5dd; }
+  /* Loaders for slow outputs (loading_output()): DNA double helix */
+  .mat-loader { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 26px 8px 22px 8px; }
+  .mat-loader-text { color: #1c2e5b; font-weight: 600; font-size: 0.92rem; }
+  .dna-helix { display: inline-flex; align-items: center; gap: 5px; height: 40px; }
+  .dna-helix .bp { position: relative; width: 8px; height: 40px; display: inline-block; --d: calc(var(--i) * -0.11s); }
+  .dna-helix .bp::before, .dna-helix .bp::after {
+    content: ''; position: absolute; left: 0; top: 16px; width: 8px; height: 8px; border-radius: 50%;
+    animation: dna-strand 1.4s ease-in-out infinite; animation-delay: var(--d);
+  }
+  .dna-helix .bp::before { background: #003087; }
+  .dna-helix .bp::after  { background: #62d5ff; animation-name: dna-strand-2; }
+  .dna-helix .rung {
+    position: absolute; left: 3px; top: 50%; width: 2px; height: 30px; border-radius: 1px; transform: translateY(-50%);
+    background: linear-gradient(180deg, #003087, #62d5ff); opacity: 0.45;
+    animation: dna-rung 1.4s ease-in-out infinite; animation-delay: var(--d);
+  }
+  @keyframes dna-strand   { 0%, 100% { transform: translateY(-15px) scale(1);   z-index: 2; } 50% { transform: translateY(15px) scale(0.55); z-index: 0; } }
+  @keyframes dna-strand-2 { 0%, 100% { transform: translateY(15px) scale(0.55); z-index: 0; } 50% { transform: translateY(-15px) scale(1);   z-index: 2; } }
+  @keyframes dna-rung     { 0%, 50%, 100% { height: 30px; } 25%, 75% { height: 2px; } }
+  .loading-output.recalculating { position: relative; opacity: 1 !important; min-height: 48px; }
+  .loading-output.recalculating > * { opacity: 0.35; transition: opacity 0.2s; }
+  .loading-output.recalculating::after { content: ''; position: absolute; top: 14px; left: 50%; margin-left: -12px;
+    width: 24px; height: 24px; border: 3px solid #cfdcf0; border-top-color: #003087; border-radius: 50%; animation: mat-spin 0.8s linear infinite; }
+  @keyframes mat-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .dna-helix .bp::before, .dna-helix .bp::after, .dna-helix .rung, .loading-output.recalculating::after { animation-duration: 4s; } }
+  .optional-tag { color: #98a2b3; font-weight: 400; }
+  .info-tip { color: #003087; cursor: help; }
+  .info-tip:focus-visible { outline: 2px solid #003087; outline-offset: 2px; border-radius: 50%; }
+  .uneven-confirm { background: #fffaeb; border: 1px solid #fdeab8; border-radius: 10px; padding: 10px 14px; }
+  .uneven-confirm .form-check-label { font-weight: 600; }
+  .split-match.ok { background: #ecfdf3; border: 1px solid #c6f0d6; color: #05603a; }
+  .split-details { margin-top: 6px; } .split-details summary { cursor: pointer; color: #003087; font-weight: 600; }
+  .split-names { font-size: 0.82rem; color: #475467; margin: 4px 0 8px 0; max-height: 160px; overflow-y: auto; }
+  @media (max-width: 520px) { .split-tiles { grid-template-columns: 1fr; } }
+  .content-wrap .alert-info    { background: #eef3fb; border-color: #cfdcf0; border-left-color: #003087; color: #0a1b2e; }
   .content-wrap .alert-warning { background: #fffaeb; border-color: #fdeab8; border-left-color: #f5a524; color: #5c4100; }
   .content-wrap .alert-danger  { background: #fef3f2; border-color: #fbd5d2; border-left-color: #d92d20; color: #7a271a; }
   .content-wrap .alert-success { background: #ecfdf3; border-color: #c6f0d6; border-left-color: #12b76a; color: #05603a; }
@@ -492,6 +605,9 @@ ui <- page_fluid(
     tags$style(HTML(app_css)),
     tags$style(HTML(about_css)),
     tags$style(HTML(footer_css)),
+    # Scientific-looking progress popups (DNA helix + scrolling sequence)
+    tags$link(rel = "stylesheet", href = "mat_progress.css"),
+    tags$script(src = "mat_progress.js"),
     # Shiny's own fileInput ships an INLINE style with !important
     # (position: absolute !important; top: -99999px !important) to
     # hide the native <input type=file> off-screen. Inline !important
@@ -571,7 +687,7 @@ ui <- page_fluid(
       conditionalPanel(
         condition = "output.is_logged_in == true",
         div(class = "d-flex align-items-center gap-2",
-            span(style = "font-size:0.78rem; color:#cfe9ec; opacity:0.9;", textOutput("logged_in_as", inline = TRUE)),
+            span(style = "font-size:0.78rem; color:#d6e6f5; opacity:0.9;", textOutput("logged_in_as", inline = TRUE)),
             actionButton("logout_btn", tagList(bsicons::bs_icon("box-arrow-right"), " Log out"),
                          class = "btn btn-outline-light btn-sm restart-btn"),
             actionButton("restart_app", tagList(bsicons::bs_icon("arrow-counterclockwise"), " Restart"),
@@ -584,12 +700,12 @@ ui <- page_fluid(
             conditionalPanel(
               condition = "output.accounts_enabled == true",
               div(class = "d-flex align-items-center gap-2",
-                  span(style = "font-size:0.78rem; color:#cfe9ec; opacity:0.9;", bsicons::bs_icon("person"), " Browsing without an account"),
+                  span(style = "font-size:0.78rem; color:#d6e6f5; opacity:0.9;", bsicons::bs_icon("person"), " Browsing without an account"),
                   actionButton("guest_login_btn", "Log in", class = "btn btn-outline-light btn-sm restart-btn"))
             ),
             conditionalPanel(
               condition = "output.accounts_enabled != true",
-              span(style = "font-size:0.78rem; color:#cfe9ec; opacity:0.9;",
+              span(style = "font-size:0.78rem; color:#d6e6f5; opacity:0.9;",
                    title = "No storage or accounts connected. Archives are built in this session and downloaded to your computer.",
                    bsicons::bs_icon("laptop"), " Local mode")
             ),
@@ -633,14 +749,30 @@ ui <- page_fluid(
           conditionalPanel(
             condition = "output.current_step_num == '1'",
             card(
-              card_header(bsicons::bs_icon("folder2-open", class = "section-icon"), "Project"),
+              section_header("folder2-open", "Project", "Name this publication and add optional location and sequence details"),
               card_body(
                 textInput("project_id", "Project ID", value = "", placeholder = "e.g. OcOm_2408"),
-                p(class = "muted", "Names saved drafts, the published archive and the report (e.g. OcOm_2408 -> OcOm_2408_CoreVersion.zip).")
+                p(class = "muted", "Names saved drafts, the published archive and the report (e.g. OcOm_2408 -> OcOm_2408_MAT_DwCA.zip)."),
+                div(class = "optional-fields",
+                  textInput("georeference_sources", width = "100%",
+                    optional_label("GPS or positioning system",
+                      "The equipment used to record each sample's latitude and longitude. It's added to every sample as georeferenceSources,",
+                      " so people using the data know how accurate the positions are.",
+                      " Example: \"Applanix PosMV WaveMaster (primary), Seapath 380+ (secondary)\" on a research vessel,",
+                      " or \"Garmin GPSMAP 66 handheld GPS\" for shore sampling. Leave blank if you don't know."),
+                    value = "", placeholder = "e.g. Applanix PosMV WaveMaster"),
+                  textInput("associated_sequences_uri", width = "100%",
+                    optional_label("Raw sequence archive link (ENA or SRA)",
+                      "A link to where the raw sequencing reads are publicly archived, so others can re-analyse them.",
+                      " It's added to every record as associatedSequences.",
+                      " Example: https://www.ebi.ac.uk/ena/browser/view/PRJEB107937 (an ENA project).",
+                      " Only add it once the reads are public; leave blank if they haven't been released yet."),
+                    value = "", placeholder = "e.g. https://www.ebi.ac.uk/ena/browser/view/PRJEB107937")
+                )
               )
             ),
             card(
-              card_header(bsicons::bs_icon("file-earmark-spreadsheet", class = "section-icon"), "Assay files"),
+              section_header("file-earmark-spreadsheet", "Assay files", "One FAIRe workbook per assay, all describing the same samples"),
               card_body(
                 radioButtons("reference_db", "Type of FAIRe files for this publication",
                              choices = REFERENCE_DB_CHOICES, selected = "curated", inline = TRUE),
@@ -654,19 +786,30 @@ ui <- page_fluid(
                 actionButton("add_assay", tagList(bsicons::bs_icon("plus-lg"), " Add another assay"), class = "btn-outline-secondary btn-sm")
               )
             ),
-            card(
-              card_header(bsicons::bs_icon("sliders", class = "section-icon"), "Sample handling"),
-              card_body(
-                textInput("sample_category_keep", "Value of samp_category that marks a REAL (non-control) sample", value = "sample"),
-                p(class = "muted", "Everything else (e.g. \"negative control\", \"positive control\") is excluded from the published archive.")
-              )
-            ),
             div(style = "text-align: right; margin-top: 10px;",
                 actionButton("to_step2", tagList("Validate files ", bsicons::bs_icon("arrow-right")), class = "btn-primary")
             )
           ),
 
-          conditionalPanel(condition = "output.current_step_num == '2'", uiOutput("step2_body")),
+          conditionalPanel(condition = "output.current_step_num == '2'",
+            card(
+              section_header("funnel", "Sample handling", "Which samples MAT publishes, and which controls it leaves out"),
+              card_body(
+                div(class = "auto-callout",
+                    bsicons::bs_icon("magic"),
+                    div(tags$b("MAT removes your control samples automatically."),
+                        " You don't need to delete them from your FAIRe files first. Only real samples go into the",
+                        " Darwin Core Archive; negative and positive controls are lab and field quality checks,",
+                        " not biodiversity records, so OBIS and GBIF don't accept them.")),
+                loading_output("sample_split_ui", "Checking your samples..."),
+                p(class = "muted mb-0 mt-3",
+                  "Source: GBIF Metabarcoding Data Toolkit (MDT) user guide, \"Before you start\": ",
+                  "\"Only real biological or environmental samples should be published.\" ",
+                  tags$a(href = MDT_CONTROLS_GUIDE_URL, target = "_blank", rel = "noopener noreferrer",
+                         "Read the guidance ", bsicons::bs_icon("box-arrow-up-right")))
+              )
+            ),
+            loading_output("step2_body", "Loading validation results...")),
           conditionalPanel(condition = "output.current_step_num == '3'", uiOutput("step3_body")),
           conditionalPanel(condition = "output.current_step_num == '4'", uiOutput("step4_body")),
           conditionalPanel(condition = "output.current_step_num == '5'", uiOutput("step5_body")),
@@ -755,6 +898,7 @@ server <- function(input, output, session) {
     unknown_names      = character(),  # unmatched names recorded as "Biota incertae sedis"
     keep_names         = character(),  # unmatched names kept as-is, not yet in WoRMS
     manual_aphia_overrides = c(),      # user-chosen AphiaIDs for ambiguous names, this session
+    allow_uneven    = FALSE,         # user confirmed some samples weren't analysed with every assay (Step 2)
     excluded_taxa   = character(),  # matched names the user excluded from the archive (likely contamination), this session
     qc_result      = NULL,  # run_qc_checks() output
     eml_xml         = NULL   # build_eml_xml() output (Step 6)
@@ -1349,6 +1493,123 @@ server <- function(input, output, session) {
     files
   })
 
+  # Step 1 "Sample handling": what MAT will publish vs remove, from the
+  # first uploaded FAIRe file (all assays share the same samples).
+  sample_split <- reactive({
+    path <- NULL
+    for (i in rv$assay_ids) {
+      file_val <- input[[paste0("assay_file_", i)]]
+      if (!is.null(file_val)) { path <- file_val$datapath; break }
+    }
+    if (is.null(path)) return(NULL)
+    tryCatch(summarise_sample_split(path, SAMPLE_CATEGORY_KEEP),
+             error = function(e) list(error = conditionMessage(e)))
+  })
+
+  # Do all uploaded files list the same samples? (Step 2 blocks if not.)
+  sample_match <- reactive({
+    paths <- list()
+    for (i in rv$assay_ids) {
+      file_val <- input[[paste0("assay_file_", i)]]
+      if (!is.null(file_val)) paths[[file_val$name]] <- file_val$datapath
+    }
+    if (length(paths) < 2) return(NULL)
+    tryCatch(compare_sample_files(paths), error = function(e) NULL)
+  })
+
+  sample_match_ui <- function() {
+    m <- sample_match()
+    if (is.null(m)) return(NULL)
+    pa <- m$per_assay
+    if (m$same) {
+      return(div(class = "split-match ok", bsicons::bs_icon("check-circle-fill"),
+                 paste0(" All ", nrow(pa), " files list the same ", m$n_union, " samples (controls included).")))
+    }
+    div(class = "alert alert-warning",
+        tags$b(bsicons::bs_icon("exclamation-triangle"), " Your files don't list the same samples."),
+        tags$ul(class = "mb-1 mt-1",
+          lapply(seq_len(nrow(pa)), function(k) {
+            bits <- c(
+              if (pa$n_missing[k] > 0) paste0("missing ", pa$n_missing[k], ": ", paste(head(pa$missing[[k]], 10), collapse = ", "),
+                                              if (pa$n_missing[k] > 10) " ..."),
+              if (pa$n_duplicated[k] > 0) paste0("listed twice: ", paste(head(pa$duplicated[[k]], 10), collapse = ", "))
+            )
+            tags$li(tags$b(pa$assay[k]), " - ", pa$n_samples[k], " samples",
+                    if (length(bits)) paste0(" (", paste(bits, collapse = "; "), ")"))
+          })),
+        "This is usually a mistake (a typo in samp_name, or an older or wrong file) - if so, fix the sampleMetadata sheets and upload again.",
+        " If some samples really weren't analysed with an assay (for example discarded), confirm that in the box below and MAT will",
+        " still publish all assays together. A sample listed twice must always be fixed.")
+  }
+
+  # Collapsed by default - read it only if you want the detail.
+  how_split_works <- tags$details(class = "split-details",
+    tags$summary("How MAT tells samples and controls apart"),
+    tags$ol(class = "split-steps mt-2",
+      tags$li("It opens the ", tags$b("sampleMetadata"), " sheet of your FAIRe file (one row per sample, named in ",
+              tags$code("samp_name"), ")."),
+      tags$li("It reads the ", tags$code("samp_category"), " column on each row."),
+      tags$li("Rows marked exactly ", tags$code(SAMPLE_CATEGORY_KEEP), " are ", tags$b("published"),
+              ". Every other value (", tags$code("negative control"), ", ", tags$code("positive control"),
+              ", anything else, or a blank cell) is ", tags$b("removed"),
+              ", along with all of that row's detections in every assay.")),
+    p(class = "muted mb-2", "All your assay files must describe the same samples, so MAT counts them from the first file",
+      " you upload and checks that every other file lists exactly the same samp_names. Step 2 also compares their sample details",
+      " (dates, coordinates and so on) and stops you if anything differs."))
+
+  output$sample_split_ui <- renderUI({
+    s <- sample_split()
+    if (is.null(s)) {
+      return(tagList(
+        div(class = "split-empty", bsicons::bs_icon("upload"),
+            " Go back to Step 1 and upload a FAIRe file to see which samples MAT will publish and which controls it will remove."),
+        how_split_works))
+    }
+    if (!is.null(s$error)) {
+      return(div(class = "alert alert-warning mb-0", "Couldn't read sampleMetadata from this file: ", s$error))
+    }
+    n_kept <- length(s$kept); n_removed <- nrow(s$removed)
+    name_list <- function(x) div(class = "split-names", paste(x, collapse = ", "))
+
+    tagList(
+      tags$h6(class = "split-heading", "What MAT found in your file"),
+      div(class = "split-tiles",
+          div(class = "split-tile kept", div(class = "num", n_kept), div("samples will be published")),
+          div(class = "split-tile removed", div(class = "num", n_removed), div("controls / other rows will be removed"))),
+      tags$table(class = "table table-sm split-table",
+        tags$thead(tags$tr(tags$th("samp_category value"), tags$th("Rows"), tags$th("What MAT does"))),
+        tags$tbody(lapply(seq_len(nrow(s$categories)), function(k) {
+          r <- s$categories[k, ]
+          tags$tr(tags$td(tags$code(r$samp_category)), tags$td(r$n),
+                  tags$td(if (r$kept) span(class = "badge text-bg-success", "Published")
+                          else span(class = "badge text-bg-secondary", "Removed")))
+        }))),
+      sample_match_ui(),
+      if (length(s$near_misses) > 0)
+        div(class = "alert alert-warning",
+            bsicons::bs_icon("exclamation-triangle"), " ",
+            "Some rows say ", tags$b(paste0("\"", s$near_misses, "\"", collapse = ", ")),
+            ", which looks like a sample but isn't exactly ", tags$code(SAMPLE_CATEGORY_KEEP),
+            ", so MAT will remove them. If they are real samples, change the value to ", tags$code(SAMPLE_CATEGORY_KEEP),
+            " in your FAIRe file and upload it again."),
+      how_split_works,
+      tags$details(class = "split-details",
+        tags$summary(paste0("Show the ", n_kept, " published sample names")), name_list(s$kept)),
+      if (n_removed > 0)
+        tags$details(class = "split-details",
+          tags$summary(paste0("Show the ", n_removed, " removed rows")),
+          {
+            groups <- split(s$removed$samp_name, s$removed$samp_category)
+            lapply(names(groups), function(g)
+              div(tags$b(g, paste0(" (", length(groups[[g]]), ")")), name_list(groups[[g]])))
+          })
+    )
+  })
+
+  # Start reading the files for Step 2's Sample handling card as soon as
+  # they're uploaded on Step 1, so it's usually ready when Step 2 opens.
+  outputOptions(output, "sample_split_ui", suspendWhenHidden = FALSE)
+
   get_input_filenames <- reactive({
     names_list <- list()
     for (i in rv$assay_ids) {
@@ -1369,15 +1630,21 @@ server <- function(input, output, session) {
       return()
     }
 
+    rv$allow_uneven <- FALSE   # new validation from Step 1: confirm again if needed
+    # Optional Step 1 fields: blank = not supplied (NA), never a placeholder.
+    opt <- function(x) { x <- trimws(x %||% ""); if (nzchar(x)) x else NA_character_ }
+    rv$answers <- list(georeference_sources     = opt(input$georeference_sources),
+                       associated_sequences_uri = opt(input$associated_sequences_uri))
     withProgress(message = "Validating uploaded files...", value = 0.3, {
       rv$validation <- tryCatch(
         validate_faire_files(
           input_files               = input_files,
-          sample_category_keep      = input$sample_category_keep,
+          sample_category_keep      = SAMPLE_CATEGORY_KEEP,
           georeference_sources      = rv$answers$georeference_sources,
           associated_sequences_uri  = rv$answers$associated_sequences_uri,
           reference_db              = input$reference_db,
-          input_filenames           = get_input_filenames()
+          input_filenames           = get_input_filenames(),
+          allow_uneven_samples      = rv$allow_uneven
         ),
         error = function(e) {
           showNotification(paste("Validation error:", conditionMessage(e)), type = "error", duration = NULL)
@@ -1470,6 +1737,12 @@ server <- function(input, output, session) {
                       placeholder = "Type your answer here", width = "100%"),
             actionButton(paste0("save_", issue$id), "Save answer", class = "btn-sm btn-primary")
           )
+        } else if (issue$fix_type == "confirm_uneven_samples") {
+          div(class = "uneven-confirm",
+            checkboxInput("confirm_uneven", width = "100%", value = isTRUE(rv$allow_uneven),
+              label = "Yes - these samples were not analysed with that assay (for example discarded). Publish all assays together."),
+            p(class = "muted mb-0", "MAT will then publish every sample once and record on each affected sample which assays",
+              " were not run. Leave this unticked if the difference is a mistake, and fix the files instead."))
         } else if (issue$fix_type == "data_table") {
           tagList(
             DTOutput(paste0("table_", issue$id)),
@@ -1534,16 +1807,31 @@ server <- function(input, output, session) {
     withProgress(message = "Re-checking...", value = 0.3, {
       rv$validation <- validate_faire_files(
         input_files               = get_input_files(),
-        sample_category_keep      = input$sample_category_keep,
+        sample_category_keep      = SAMPLE_CATEGORY_KEEP,
         georeference_sources      = rv$answers$georeference_sources,
         associated_sequences_uri  = rv$answers$associated_sequences_uri,
         reference_db              = input$reference_db,
-        input_filenames           = get_input_filenames()
+        input_filenames           = get_input_filenames(),
+        allow_uneven_samples      = rv$allow_uneven
       )
       rv$validated_answers <- rv$answers
       incProgress(0.7)
     })
   })
+
+  observeEvent(input$confirm_uneven, {
+    if (identical(isTRUE(input$confirm_uneven), isTRUE(rv$allow_uneven))) return()
+    rv$allow_uneven <- isTRUE(input$confirm_uneven)
+    rv$validation <- validate_faire_files(
+      input_files               = get_input_files(),
+      sample_category_keep      = SAMPLE_CATEGORY_KEEP,
+      georeference_sources      = rv$validated_answers$georeference_sources,
+      associated_sequences_uri  = rv$validated_answers$associated_sequences_uri,
+      reference_db              = input$reference_db,
+      input_filenames           = get_input_filenames(),
+      allow_uneven_samples      = rv$allow_uneven
+    )
+  }, ignoreInit = TRUE)
 
   observeEvent(input$back_to_1_from_2, { rv$current_step <- 1 })
   observeEvent(input$to_step3, {
@@ -1604,13 +1892,6 @@ server <- function(input, output, session) {
 
     tagList(
       card(
-        card_header(bsicons::bs_icon("diagram-3", class = "section-icon"), "Which assay's sampleMetadata is the source of truth?"),
-        card_body(
-          p(class = "muted", "Every other assay's sampleMetadata is cross-checked against this one and must match exactly (same physical samples)."),
-          selectInput("event_core_source_assay", NULL, choices = names(input_files))
-        )
-      ),
-      card(
         card_header(bsicons::bs_icon("link-45deg", class = "section-icon"), "Map each assay to its projectMetadata column(s)"),
         card_body(
           p(class = "muted", "projectMetadata stores PCR/primer/sequencing details per assay column (assay1, assay2, ...). Matches are suggested below by comparing each assay's name against the primer/gene names shown - review and adjust, don't just accept blindly."),
@@ -1664,9 +1945,11 @@ server <- function(input, output, session) {
         incProgress(0.1, detail = "Event core")
         ec <- build_event_core(
           input_files             = input_files,
-          event_core_source_assay = input$event_core_source_assay,
-          sample_category_keep    = input$sample_category_keep,
-          georeference_sources    = rv$answers$georeference_sources
+          # Any file works: Step 2 already confirmed that samples shared by the files have identical details.
+          event_core_source_assay = names(input_files)[1],
+          sample_category_keep    = SAMPLE_CATEGORY_KEEP,
+          georeference_sources    = rv$answers$georeference_sources,
+          allow_uneven_samples    = rv$allow_uneven
         )
 
         incProgress(0.3, detail = "Occurrence extensions")
@@ -1685,7 +1968,8 @@ server <- function(input, output, session) {
         )
         incProgress(0.2)
 
-        list(event_core = ec$event_core, controls = ec$controls, occurrence = occ$occurrence, dna_extension = dna$dna_extension)
+        list(event_core = ec$event_core, controls = ec$controls, occurrence = occ$occurrence, dna_extension = dna$dna_extension,
+             assay_coverage = ec$assay_coverage)
       }, error = function(e) {
         rv$build_error <- conditionMessage(e)
         NULL
@@ -1883,6 +2167,15 @@ server <- function(input, output, session) {
            if (n_taxa == 1) "1 taxon was" else paste(n_taxa, "taxa were"), " excluded from the published occurrences as likely contamination or misidentification (",
            format(n_removed, big.mark = ","), " occurrence records removed): ",
            paste(sort(rv$excluded_taxa), collapse = ", "), ".")
+  })
+  # Uneven sample lists (confirmed in Step 2): say how many samples each assay covered.
+  uneven_samples_method_note <- reactive({
+    cov <- rv$build_result$assay_coverage
+    if (is.null(cov)) return(NULL)
+    paste0("Not every sample was analysed with every assay: ",
+           paste0(cov$assay, " ", cov$samples_analysed, " of ", cov$samples_total, " samples", collapse = "; "),
+           ". Each sample is listed once in the Event core; samples not analysed with an assay say so in eventRemarks,",
+           " and the absence of records from that assay for those samples does not mean the taxa were absent.")
   })
   # Same idea for the Step 4 name choices: what was renamed or kept as unknown.
   name_choice_method_note <- reactive({
@@ -2908,7 +3201,7 @@ server <- function(input, output, session) {
 
     keywords <- trimws(strsplit(input$eml_keywords %||% "", ",")[[1]])
     abstract_paragraphs <- strsplit(input$eml_abstract %||% "", "\n")[[1]]
-    method_steps <- c(strsplit(input$eml_methods %||% "", "\n")[[1]], name_choice_method_note(), exclusion_method_note())
+    method_steps <- c(strsplit(input$eml_methods %||% "", "\n")[[1]], uneven_samples_method_note(), name_choice_method_note(), exclusion_method_note())
 
     eml <- tryCatch(
       build_eml_xml(
@@ -2993,7 +3286,7 @@ server <- function(input, output, session) {
                 choiceValues = c("draft", "publish"),
                 choiceNames = list(
                   tagList(tags$b("Save as draft"), tags$br(), span(class = "muted", "Keep it as a draft, named with a timestamp. Nothing is sent to OBIS.")),
-                  tagList(tags$b("Publish"), tags$br(), span(class = "muted", "Put it in the Publish folder as PROJECT_CoreVersion.zip, where it will be sent to OBIS."))
+                  tagList(tags$b("Publish"), tags$br(), span(class = "muted", "Put it in the Publish folder as PROJECT_MAT_DwCA.zip, where it will be sent to OBIS."))
                 )),
               actionButton("save_archive_btn", tagList(bsicons::bs_icon("cloud-upload"), " Save"), class = "btn-primary"),
               uiOutput("save_archive_status")
@@ -3188,7 +3481,7 @@ server <- function(input, output, session) {
       already <- tryCatch(publish_exists(project), error = function(e) FALSE)
       showModal(modalDialog(
         title = "Publish this archive?",
-        p("This will put ", tags$b(paste0(safe_project_id(project), "_CoreVersion.zip")),
+        p("This will put ", tags$b(publish_file_name(project)),
           " in the Publish folder, where it will be sent to OBIS."),
         if (already) div(class = "alert alert-warning",
                           "A published version of this project already exists and will be replaced."),
@@ -3389,7 +3682,7 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "Move to Publish?",
       p("You're about to move ", tags$b(df$path[sel]), " out of Draft and into Publish as ",
-        tags$b(paste0(df$project[sel], "_CoreVersion.zip")), "."),
+        tags$b(publish_file_name(df$project[sel])), "."),
       p("Once it's moved it no longer appears in Draft, and it will be sent to OBIS."),
       if (already) div(class = "alert alert-warning",
                         "A published version of ", tags$b(df$project[sel]), " already exists and will be replaced."),
@@ -3451,12 +3744,14 @@ server <- function(input, output, session) {
     for (id in rv$assay_ids) removeUI(selector = paste0("#assay_row_", id))
 
     updateTextInput(session, "project_id", value = "")
-    updateTextInput(session, "sample_category_keep", value = "sample")
     updateRadioButtons(session, "reference_db", selected = "curated")
 
     rv$validation   <- NULL
+    rv$allow_uneven <- FALSE
     rv$validated_answers <- list(georeference_sources = NA_character_, associated_sequences_uri = NA_character_)
     rv$answers      <- list(georeference_sources = NA_character_, associated_sequences_uri = NA_character_)
+    updateTextInput(session, "georeference_sources", value = "")
+    updateTextInput(session, "associated_sequences_uri", value = "")
     rv$build_result <- NULL
     rv$build_error  <- NULL
     rv$worms_result <- NULL

@@ -8,7 +8,7 @@
 # which the hosting environment doesn't have).
 
 REPORT_COLORS <- list(
-  navy = "#04182f", blue = "#0a3d62", teal = "#0f7a8c", accent = "#2a78d6",
+  navy = "#0a1b2e", blue = "#1c2e5b", teal = "#003087", accent = "#003087", gold = "#daaa00",
   light = "#f3f6f8", line = "#dfe4e8", text = "#1f2d3a", muted = "#6b7885", grey = "#c3c2b7"
 )
 
@@ -25,8 +25,8 @@ REPORT_COLORS <- list(
   )
 }
 RANK_LEVELS <- c("Species", "Genus", "Family", "Order", "Class or higher", "Unidentified")
-RANK_COLORS <- c(Species = "#0a3d62", Genus = "#2a78d6", Family = "#0f7a8c",
-                 Order = "#5fb3a8", `Class or higher` = "#a9c9e6", Unidentified = "#c3c2b7")
+RANK_COLORS <- c(Species = "#0a1b2e", Genus = "#003087", Family = "#3c79c9",
+                 Order = "#62d5ff", `Class or higher` = "#b9ecff", Unidentified = "#c3c2b7")
 
 .report_theme <- function() {
   ggplot2::theme_minimal(base_size = 9) +
@@ -202,18 +202,18 @@ build_report_png <- function(path, info) {
 
   # ---- header banner ----
   grid::grid.rect(x = 0, y = 1, width = 1, height = grid::unit(1.75, "in"), just = c("left", "top"), gp = grid::gpar(fill = REPORT_COLORS$blue, col = NA))
-  grid::grid.rect(x = 0, y = grid::unit(H - 1.75, "in"), width = 1, height = grid::unit(0.07, "in"), just = c("left", "top"), gp = grid::gpar(fill = REPORT_COLORS$teal, col = NA))
-  txt("eDNA PUBLICATION REPORT", M, 0.28, 9, "#9fd6dc", "bold")
+  grid::grid.rect(x = 0, y = grid::unit(H - 1.75, "in"), width = 1, height = grid::unit(0.07, "in"), just = c("left", "top"), gp = grid::gpar(fill = REPORT_COLORS$gold, col = NA))
+  txt("eDNA PUBLICATION REPORT", M, 0.28, 9, "#62d5ff", "bold")
   title_txt <- if (nzchar(info$title %||% "")) info$title else info$project_id
   if (nchar(title_txt) > 62) title_txt <- paste0(substr(title_txt, 1, 59), "...")
   txt(title_txt, M, if (nchar(title_txt) <= 34) 0.5 else 0.55, if (nchar(title_txt) <= 34) 21 else 16, "white", "bold")
   if (nzchar(info$description %||% "")) {
     lines <- strwrap(gsub("\\s+", " ", info$description), width = 112)
     if (length(lines) > 3) lines <- c(lines[1:2], paste0(lines[3], "..."))
-    txt(paste(lines, collapse = "\n"), M, 1.0, 8.5, "#dbe9ef")
+    txt(paste(lines, collapse = "\n"), M, 1.0, 8.5, "#dde6f2")
   }
   txt(paste0("Project ", info$project_id, "   |   ", format(info$generated, "%d %B %Y, %H:%M", tz = "UTC"), " UTC   |   ", info$reference_db_label),
-      M, 1.53, 8, "#9fd6dc")
+      M, 1.53, 8, "#62d5ff")
 
   # ---- headline numbers ----
   kpis <- list(

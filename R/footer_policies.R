@@ -14,15 +14,15 @@ footer_css <- "
   .app-footer { display: block; text-align: left; padding: 40px 32px 0 32px; }
   .footer-grid { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 36px; }
   .footer-brand .footer-partner { display: inline-block; margin-bottom: 14px; }
-  .footer-brand p { color: #a9c2d1; font-size: 0.84rem; line-height: 1.6; margin: 0 0 6px 0; }
+  .footer-brand p { color: #b3c2da; font-size: 0.84rem; line-height: 1.6; margin: 0 0 6px 0; }
   .footer-brand .footer-name { color: #ffffff; font-weight: 700; font-size: 0.95rem; }
   .footer-col h6 { color: #ffffff; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 12px 0; }
-  .footer-col a { display: block; color: #a9c2d1; font-size: 0.86rem; padding: 3px 0; text-decoration: none; }
+  .footer-col a { display: block; color: #b3c2da; font-size: 0.86rem; padding: 3px 0; text-decoration: none; }
   .footer-col a:hover { color: #ffffff; text-decoration: none; }
   .footer-col a .bi { margin-right: 6px; opacity: 0.8; }
   .footer-bottom {
     max-width: 1180px; margin: 32px auto 0 auto; padding: 16px 0 20px 0; border-top: 1px solid rgba(255,255,255,0.10);
-    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: #7f9fb3; font-size: 0.78rem;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: #8b9bb8; font-size: 0.78rem;
   }
   .policy-body h6 { font-weight: 700; margin-top: 18px; }
   .policy-body p, .policy-body li { color: #3d3c38; font-size: 0.92rem; line-height: 1.6; }
@@ -31,15 +31,22 @@ footer_css <- "
   @media (max-width: 520px) { .footer-grid { grid-template-columns: 1fr; } }
 "
 
+# Organisation logo: www/partner_logo.(png|jpg|jpeg|svg) is gitignored, so
+# a fork has none and gets a placeholder (footer) or just the MAT logo
+# (header, home page). Returns the file name, or NULL when missing.
+partner_logo_src <- function() {
+  logo <- list.files("www", pattern = "^partner_logo\\.(png|jpe?g|svg)$")
+  if (length(logo) > 0) logo[1] else NULL
+}
+PARTNER_LOGO_ALT <- "The University of Western Australia, Oceans Institute and Minderoo Foundation"
+
 app_footer_ui <- function() {
   ext <- function(href, icon, text) {
     tags$a(href = href, target = "_blank", rel = "noopener noreferrer", bsicons::bs_icon(icon), text)
   }
-  # Organisation logo: www/partner_logo.(png|jpg|jpeg|svg) is gitignored, so
-  # a fork gets a placeholder instead and can drop in its own file.
-  logo <- list.files("www", pattern = "^partner_logo\\.(png|jpe?g|svg)$")
-  logo_ui <- if (length(logo) > 0) {
-    div(class = "footer-partner", tags$img(src = logo[1], alt = "Partner organisations"))
+  logo <- partner_logo_src()
+  logo_ui <- if (!is.null(logo)) {
+    div(class = "footer-partner", tags$img(src = logo, alt = PARTNER_LOGO_ALT))
   } else {
     div(class = "footer-partner placeholder",
         title = "Add your organisation's logo as www/partner_logo.png (or .jpg / .svg)",
