@@ -14,3 +14,6 @@ www/partner_logo.*
 # Page background picture: not ours to redistribute; the app falls back to the plain background.
 docs/img/bg.png
 www/page_bg.*
+# Home banner background video (stock footage, same reason); the banner falls back to plain white.
+docs/vedios/
+www/hero_video.*

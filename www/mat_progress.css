@@ -1,0 +1,70 @@
+/* MAT progress popups (Shiny withProgress, style = "notification").
+   Shiny builds the popup itself; www/mat_progress.js adds the DNA helix and
+   the scrolling base sequence. Colours: UWA Blue #003087, OI Dark Blue
+   #1c2e5b, OI Cyan #62d5ff. The helix itself is styled in app.R (.dna-helix). */
+
+#shiny-notification-panel { width: 420px; max-width: calc(100vw - 24px); }
+
+.shiny-notification:has(.shiny-progress-notification) {
+  position: relative; overflow: hidden; opacity: 1;
+  background: #ffffff; color: #0a1b2e;
+  border: 1px solid #dfe6f1; border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(10, 27, 46, 0.16), 0 2px 6px rgba(10, 27, 46, 0.06);
+  padding: 16px 40px 14px 18px;
+  font-family: var(--bs-body-font-family, inherit);
+}
+/* thin brand accent along the top, like the cards */
+.shiny-notification:has(.shiny-progress-notification)::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #003087 0%, #1c6fd1 55%, #62d5ff 100%);
+}
+.shiny-notification:has(.shiny-progress-notification) .shiny-notification-close {
+  top: 10px; right: 12px; color: #98a2b3; font-size: 1.1rem;
+}
+.shiny-notification:has(.shiny-progress-notification) .shiny-notification-close:hover { color: #1c2e5b; }
+
+/* Layout: helix on the left, text + bar + sequence on the right */
+.shiny-progress-notification.mat-progress {
+  display: grid; grid-template-columns: auto 1fr; column-gap: 16px; align-items: center;
+}
+.mat-progress .mat-progress-helix { grid-column: 1; grid-row: 1 / span 3; gap: 4px; }
+.mat-progress .mat-progress-helix .bp,
+.mat-progress .mat-progress-helix .bp::before,
+.mat-progress .mat-progress-helix .bp::after { width: 7px; }
+.mat-progress .mat-progress-helix .bp::before,
+.mat-progress .mat-progress-helix .bp::after { height: 7px; }
+.mat-progress .mat-progress-helix .rung { left: 2.5px; }
+.mat-progress .progress-text { grid-column: 2; grid-row: 1; margin: 0 0 8px 0; line-height: 1.35; }
+.mat-progress .progress-message { display: block; font-weight: 700; color: #1c2e5b; font-size: 0.93rem; }
+.mat-progress .progress-detail  { display: block; font-size: 0.8rem; color: #667085; margin-top: 2px; }
+.mat-progress .progress { grid-column: 2; grid-row: 2; }
+
+/* Progress bar: rounded track, gradient fill with moving stripes */
+.shiny-progress-notification .progress {
+  height: 8px; border-radius: 999px; background: #e6ecf5; overflow: hidden; margin: 0; box-shadow: none;
+}
+.shiny-progress-notification .progress-bar {
+  border-radius: 999px; transition: width 0.4s ease;
+  background-color: #003087;
+  background-image:
+    linear-gradient(45deg, rgba(255,255,255,0.22) 25%, transparent 25%, transparent 50%,
+                    rgba(255,255,255,0.22) 50%, rgba(255,255,255,0.22) 75%, transparent 75%, transparent),
+    linear-gradient(90deg, #003087 0%, #1c6fd1 60%, #62d5ff 100%);
+  background-size: 16px 16px, 100% 100%;
+  animation: mat-bar-stripes 0.9s linear infinite;
+}
+@keyframes mat-bar-stripes { from { background-position: 16px 0, 0 0; } to { background-position: 0 0, 0 0; } }
+
+/* Scrolling DNA sequence under the bar (A/T/G/C in the usual base colours) */
+.mat-seq { grid-column: 2; grid-row: 3; margin-top: 8px; height: 16px; overflow: hidden; position: relative;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+.mat-seq-track { display: inline-block; white-space: nowrap; font: 600 11px/16px ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 2px; animation: mat-seq-scroll 9s linear infinite; }
+.mat-seq b { font-weight: 700; }
+.mat-seq .A { color: #12a150; } .mat-seq .T { color: #d92d20; } .mat-seq .G { color: #c27800; } .mat-seq .C { color: #003087; }
+@keyframes mat-seq-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .shiny-progress-notification .progress-bar, .mat-seq-track { animation: none; }
+}

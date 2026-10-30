@@ -22,11 +22,17 @@ build_event_id <- function(samp_name) {
 #'   field (e.g. the GPS/positioning system used to record coordinates). Left NA if not
 #'   supplied - callers (including the Shiny app) should prompt for the real value rather
 #'   than guess or leave a made-up placeholder.
-#' @return list(event_core, controls, messages)
+#' @param allow_uneven_samples TRUE if the user confirmed that samples missing from
+#'   some files weren't analysed with that assay. The Event core then holds every
+#'   sample from every file, and eventRemarks on each affected sample names the
+#'   assays that weren't run. Samples the files share must still match exactly.
+#' @return list(event_core, controls, messages, assay_coverage = per-assay count
+#'   of real samples analysed, or NULL when every sample has every assay)
 build_event_core <- function(input_files,
                               event_core_source_assay,
                               sample_category_keep,
-                              georeference_sources = NA_character_) {
+                              georeference_sources = NA_character_,
+                              allow_uneven_samples = FALSE) {
   messages <- character()
   log_msg <- function(...) messages <<- c(messages, paste0(...))
 
@@ -38,40 +44,37 @@ build_event_core <- function(input_files,
   names(sample_tables) <- names(input_files)
 
   source_assay <- event_core_source_assay
+  # Source assay first, so its rows win for every sample it has.
+  sample_tables <- sample_tables[c(source_assay, setdiff(names(sample_tables), source_assay))]
   base_table <- sample_tables[[source_assay]]
-  comparison_exclude <- c("assay_name")
   other_assays <- setdiff(names(sample_tables), source_assay)
 
+  coverage <- sample_assay_coverage(sample_tables)
+  uneven <- any(nzchar(coverage$assays_not_run))
+  if (uneven && !isTRUE(allow_uneven_samples)) {
+    stop("The assay files don't list the same samples - cannot safely build a shared Event core. ",
+         "If some samples really weren't analysed with an assay, confirm that in Step 2 (allow_uneven_samples = TRUE).")
+  }
+
   for (other in other_assays) {
-    other_table <- sample_tables[[other]]
-
-    common_cols <- intersect(
-      setdiff(names(base_table), comparison_exclude),
-      setdiff(names(other_table), comparison_exclude)
-    )
-
-    base_sub  <- base_table  %>% dplyr::select(dplyr::all_of(common_cols)) %>% dplyr::arrange(samp_name)
-    other_sub <- other_table %>% dplyr::select(dplyr::all_of(common_cols)) %>% dplyr::arrange(samp_name)
-
-    if (!identical(nrow(base_sub), nrow(other_sub))) {
-      stop(sprintf(
-        "Row count mismatch between %s (%d rows) and %s (%d rows) - cannot safely build a shared Event core.",
-        source_assay, nrow(base_sub), other, nrow(other_sub)
-      ))
-    }
-
-    mismatches <- !mapply(identical, base_sub, other_sub)
-    if (any(mismatches)) {
+    bad_cols <- shared_metadata_mismatches(base_table, sample_tables[[other]])
+    if (length(bad_cols) > 0) {
       stop(sprintf(
         "sampleMetadata mismatch between %s and %s in column(s): %s\nResolve this before building a shared Event core - do not proceed with mismatched sample metadata.",
-        source_assay, other, paste(names(mismatches)[mismatches], collapse = ", ")
+        source_assay, other, paste(bad_cols, collapse = ", ")
       ))
     }
-
-    log_msg("  OK: ", other, " matches ", source_assay, " (", nrow(other_sub), " samples, ", length(common_cols), " shared columns)")
+    log_msg("  OK: ", other, " agrees with ", source_assay, " on every sample they share (",
+            length(intersect(base_table$samp_name, sample_tables[[other]]$samp_name)), " samples)")
   }
 
   log_msg("All assay files agree on shared sample metadata. Proceeding with ", source_assay, " as source.")
+
+  if (uneven) {
+    base_table <- union_sample_table(sample_tables)
+    log_msg("Not every sample was analysed with every assay - Event core uses all ", nrow(base_table),
+            " samples from all files; affected samples say which assays weren't run in eventRemarks.")
+  }
 
   all_samples <- base_table %>% dplyr::mutate(eventID = build_event_id(samp_name))
 
@@ -142,6 +145,27 @@ build_event_core <- function(input_files,
       eventRemarks = site_comments
     )
 
+  # Uneven sample lists: say on each affected sample which assays weren't run,
+  # so a missing assay is never read as "nothing detected".
+  assay_coverage <- NULL
+  if (uneven) {
+    cov <- coverage[match(event_core$eventID, coverage$samp_name), ]
+    note <- dplyr::if_else(nzchar(cov$assays_not_run),
+      paste0("Analysed with assay(s): ", cov$assays_run, ". Not analysed with: ", cov$assays_not_run,
+             "; a lack of records from that assay does not mean the taxa were absent."),
+      NA_character_)
+    event_core$eventRemarks <- dplyr::case_when(
+      is.na(note) ~ as.character(event_core$eventRemarks),
+      is.na(event_core$eventRemarks) | !nzchar(trimws(event_core$eventRemarks)) ~ note,
+      TRUE ~ paste0(event_core$eventRemarks, " | ", note))
+    assay_coverage <- dplyr::tibble(
+      assay = names(input_files),
+      samples_analysed = vapply(names(input_files), function(a) sum(event_core$eventID %in% sample_tables[[a]]$samp_name), integer(1)),
+      samples_total = nrow(event_core))
+    log_msg("Real samples analysed per assay: ",
+            paste0(assay_coverage$assay, " ", assay_coverage$samples_analysed, "/", assay_coverage$samples_total, collapse = ", "))
+  }
+
   # These measurement fields have no Event-core Darwin Core term - they
   # belong in an eMoF extension. Drop the ones that are entirely empty
   # (nothing to publish); warn if any are populated so they aren't lost.
@@ -161,5 +185,5 @@ build_event_core <- function(input_files,
 
   log_msg("Event core built: ", nrow(event_core), " rows, ", ncol(event_core), " columns")
 
-  list(event_core = event_core, controls = control_samples, messages = messages)
+  list(event_core = event_core, controls = control_samples, messages = messages, assay_coverage = assay_coverage)
 }

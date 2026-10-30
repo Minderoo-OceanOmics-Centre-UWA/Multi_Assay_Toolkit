@@ -25,18 +25,21 @@ REQUIRED_SAMPLE_COLUMNS <- c("samp_name", "samp_category", "eventDate", "decimal
 
 #' @param input_files Named list: assay name -> path to that assay's FAIRe .xlsx
 #' @param sample_category_keep The samp_category value marking a real (non-control) sample
-#' @param georeference_sources Current value (NA if not yet supplied by the user)
-#' @param associated_sequences_uri Current value (NA if not yet supplied by the user)
+#' @param georeference_sources,associated_sequences_uri No longer checked here (optional
+#'   Step 1 fields now); kept so existing callers don't break
 #' @param reference_db "curated" or "nt" - the type of FAIRe file this publication uses
 #' @param input_filenames Named list: assay name -> the file's ORIGINAL name (used to
 #'   check every file matches reference_db; skipped if either is NULL)
+#' @param allow_uneven_samples TRUE once the user has confirmed that samples
+#'   missing from some files really weren't analysed with that assay
 #' @return list(issues = list of issue objects, any_blocking = logical)
 validate_faire_files <- function(input_files,
                                   sample_category_keep,
                                   georeference_sources = NA_character_,
                                   associated_sequences_uri = NA_character_,
                                   reference_db = NULL,
-                                  input_filenames = NULL) {
+                                  input_filenames = NULL,
+                                  allow_uneven_samples = FALSE) {
   issues <- list()
   add_issue <- function(issue) issues[[length(issues) + 1]] <<- issue
 
@@ -136,41 +139,66 @@ validate_faire_files <- function(input_files,
   # (soft version of build_event_core()'s stop() - surfaced as an issue,
   # not a hard halt, so the user sees it in context with everything else)
   assay_names <- names(input_files)
-  if (length(assay_names) > 1) {
+
+  # 3a. Same sample list in every file? A sample missing from one file is
+  # usually a mistake (typo, wrong export), so it blocks - unless the user
+  # confirms the samples really weren't analysed with that assay
+  # (allow_uneven_samples). Duplicate samp_names always block.
+  name_check <- compare_sample_names(lapply(sample_tables, function(t) t$samp_name))
+  if (length(assay_names) > 1 && !name_check$same) {
+    show_names <- function(x, max_n = 15) {
+      if (length(x) <= max_n) paste(x, collapse = ", ")
+      else paste0(paste(x[seq_len(max_n)], collapse = ", "), " ... and ", length(x) - max_n, " more")
+    }
+    pa <- name_check$per_assay
+    if (any(pa$n_duplicated > 0)) {
+      add_issue(list(
+        id = "sample_names_duplicated",
+        severity = "error",
+        title = "A sample is listed more than once",
+        message = paste0(
+          paste(unlist(lapply(which(pa$n_duplicated > 0), function(k)
+            paste0(pa$assay[k], " lists these samp_name(s) more than once: ", show_names(pa$duplicated[[k]]), "."))), collapse = " "),
+          " Each sample must appear once in sampleMetadata. Fix the file, then upload it again."
+        ),
+        fix_type = "blocking_error"
+      ))
+    }
+    if (any(pa$n_missing > 0)) {
+      lines <- unlist(lapply(which(pa$n_missing > 0), function(k)
+        paste0(pa$assay[k], " has no row for ", pa$n_missing[k], " sample(s) that other files have: ", show_names(pa$missing[[k]]), ".")))
+      add_issue(list(
+        id = "sample_names_differ",
+        severity = if (isTRUE(allow_uneven_samples)) "warning" else "error",
+        title = if (isTRUE(allow_uneven_samples)) "Not every sample was analysed with every assay (confirmed)"
+                else "Your files don't list the same samples",
+        message = paste0(
+          paste(lines, collapse = " "),
+          if (isTRUE(allow_uneven_samples))
+            " You confirmed these samples weren't analysed with that assay. MAT will publish every sample once, and note on each affected sample which assays were not run, so a missing assay isn't read as \"nothing detected\"."
+          else paste0(
+            " This is usually a mistake (a typo in samp_name, or an older or wrong file) - fix the sampleMetadata sheets so they match, then upload again.",
+            " If these samples really weren't analysed with that assay (for example discarded), tick the box below to publish all assays together.")
+        ),
+        fix_type = "confirm_uneven_samples"
+      ))
+    }
+  }
+
+  # 3b. Samples that two files share must have identical details.
+  if (length(assay_names) > 1 && !any(name_check$per_assay$n_duplicated > 0)) {
     base_assay <- assay_names[1]
-    base_table <- sample_tables[[base_assay]]
-    comparison_exclude <- "assay_name"
-
     for (other in assay_names[-1]) {
-      other_table <- sample_tables[[other]]
-      common_cols <- intersect(setdiff(names(base_table), comparison_exclude), setdiff(names(other_table), comparison_exclude))
-      base_sub  <- base_table  %>% dplyr::select(dplyr::all_of(common_cols)) %>% dplyr::arrange(samp_name)
-      other_sub <- other_table %>% dplyr::select(dplyr::all_of(common_cols)) %>% dplyr::arrange(samp_name)
-
-      if (!identical(nrow(base_sub), nrow(other_sub))) {
-        add_issue(list(
-          id = paste0("row_count_mismatch_", base_assay, "_", other),
-          severity = "error",
-          title = paste0("Sample count mismatch: ", base_assay, " vs ", other),
-          message = paste0(
-            base_assay, " has ", nrow(base_sub), " samples, ", other, " has ", nrow(other_sub),
-            ". All assays are expected to share the same physical samples - this must match before a shared Event core can be built."
-          ),
-          fix_type = "blocking_error"
-        ))
-        next
-      }
-
-      mismatches <- !mapply(identical, base_sub, other_sub)
-      if (any(mismatches)) {
+      bad_cols <- shared_metadata_mismatches(sample_tables[[base_assay]], sample_tables[[other]])
+      if (length(bad_cols) > 0) {
         add_issue(list(
           id = paste0("column_mismatch_", base_assay, "_", other),
           severity = "error",
           title = paste0("sampleMetadata disagrees: ", base_assay, " vs ", other),
           message = paste0(
-            "Column(s) differ between these two assays' sampleMetadata: ",
-            paste(names(mismatches)[mismatches], collapse = ", "),
-            ". Since both assays sequence the same physical samples, this metadata should be identical - resolve the discrepancy in the source files."
+            "For the samples both files list, these column(s) differ: ",
+            paste(bad_cols, collapse = ", "),
+            ". Both assays describe the same physical samples, so this metadata should be identical - resolve the discrepancy in the source files."
           ),
           fix_type = "blocking_error"
         ))
@@ -179,7 +207,9 @@ validate_faire_files <- function(input_files,
   }
 
   # ---- 4. Row-level completeness for REAL samples -------------------------
-  base_table <- sample_tables[[assay_names[1]]]
+  # Every sample from every file (identical to the first file's table when
+  # the sample lists match).
+  base_table <- union_sample_table(sample_tables)
   real_samples <- base_table %>% dplyr::filter(samp_category == sample_category_keep)
 
   incomplete <- real_samples %>%
@@ -197,28 +227,8 @@ validate_faire_files <- function(input_files,
     ))
   }
 
-  # ---- 5. Config-level values with no source in the data at all ----------
-  if (is.na(georeference_sources) || georeference_sources == "") {
-    add_issue(list(
-      id = "georeference_sources_missing",
-      severity = "warning",
-      title = "GPS/positioning system not specified",
-      message = "What GPS or positioning system was used to record latitude/longitude for this project (e.g. a specific onboard unit, a handheld GPS)? This is required by OBIS to document how coordinates were determined (georeferenceSources).",
-      fix_type = "config_question",
-      field = "georeference_sources"
-    ))
-  }
-
-  if (is.na(associated_sequences_uri) || associated_sequences_uri == "") {
-    add_issue(list(
-      id = "associated_sequences_missing",
-      severity = "warning",
-      title = "Raw sequence archive link not specified",
-      message = "Where are the raw sequence reads for this project archived (e.g. an ENA or SRA project accession/link)? Leave blank if they haven't been deposited yet - a link to something not yet public shouldn't go in the published archive.",
-      fix_type = "config_question",
-      field = "associated_sequences_uri"
-    ))
-  }
+  # (GPS system and raw-read archive link used to be asked here as warnings.
+  # They are now optional fields in Step 1 - blank simply means "not supplied".)
 
   any_blocking <- any(vapply(issues, function(i) i$severity == "error", logical(1)))
   list(issues = issues, any_blocking = any_blocking)

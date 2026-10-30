@@ -8,7 +8,7 @@
 #   DRAFT   s3://<bucket>/biodiversity-public/Draft/<project>_<YYYYmmdd_HHMMSS>.zip
 #           A work-in-progress archive. Every save gets its own timestamped
 #           file, so drafts never overwrite each other.
-#   PUBLISH s3://<bucket>/biodiversity-public/Publish/<project>_CoreVersion.zip
+#   PUBLISH s3://<bucket>/biodiversity-public/Publish/<project>_MAT_DwCA.zip
 #           The archive that is ready to be sent to OBIS. One canonical file
 #           per project - publishing again REPLACES it (the app asks first).
 #   REPORT  s3://<bucket>/biodiversity-public/Report/<same base name as the zip>.png
@@ -43,7 +43,7 @@ s3_report_prefix  <- function() paste0(s3_public_prefix(), "/Report")
 
 # A report always has the SAME base name as its zip, in the Report folder:
 #   Draft/OcOm_2408_20260925_142530.zip   <->  Report/OcOm_2408_20260925_142530.png
-#   Publish/OcOm_2408_CoreVersion.zip     <->  Report/OcOm_2408_CoreVersion.png
+#   Publish/OcOm_2408_MAT_DwCA.zip        <->  Report/OcOm_2408_MAT_DwCA.png
 report_key_for_zip <- function(zip_key) {
   paste0(s3_report_prefix(), "/", sub("\\.zip$", "", basename(zip_key)), ".png")
 }
@@ -51,16 +51,22 @@ report_key_for_zip <- function(zip_key) {
 safe_project_id <- function(project_id) {
   gsub("[^A-Za-z0-9_-]", "_", if (!is.null(project_id) && nzchar(project_id)) project_id else "untitled")
 }
+# Published archive name: <project>_MAT_DwCA.zip = project, tool, file format.
+# (Before 2026-10-30 this was <project>_CoreVersion.zip; such older files are
+# still recognised by project_from_filename() below.)
+PUBLISH_SUFFIX <- "_MAT_DwCA"
+publish_file_name <- function(project_id) paste0(safe_project_id(project_id), PUBLISH_SUFFIX, ".zip")
 publish_zip_key <- function(project_id) {
-  paste0(s3_publish_prefix(), "/", safe_project_id(project_id), "_CoreVersion.zip")
+  paste0(s3_publish_prefix(), "/", publish_file_name(project_id))
 }
 draft_zip_key <- function(project_id, when = Sys.time()) {
   paste0(s3_draft_prefix(), "/", safe_project_id(project_id), "_", format(when, "%Y%m%d_%H%M%S", tz = "UTC"), ".zip")
 }
 
-# "OcOm_2408_20260925_142530.zip" -> "OcOm_2408"; "OcOm_2408_CoreVersion.zip" -> "OcOm_2408"
+# "OcOm_2408_20260925_142530.zip" -> "OcOm_2408"; "OcOm_2408_MAT_DwCA.zip" -> "OcOm_2408"
+# (and the older "OcOm_2408_CoreVersion.zip" -> "OcOm_2408")
 project_from_filename <- function(file_name) {
-  sub("(_[0-9]{8}_[0-9]{6}|_CoreVersion)?\\.zip$", "", file_name)
+  sub("(_[0-9]{8}_[0-9]{6}|_MAT_DwCA|_CoreVersion)?\\.zip$", "", file_name)
 }
 
 #' TRUE if saving to Draft/Publish is configured (bucket known AND AWS
@@ -129,7 +135,7 @@ publish_archive <- function(zip_path, project_id, report_path = NULL) {
        report_key = .put_report_for(report_path, key))
 }
 
-#' Promote a draft: copy it to Publish as <project>_CoreVersion.zip, and
+#' Promote a draft: copy it to Publish as <project>_MAT_DwCA.zip, and
 #' only once that copy is confirmed to exist, remove the draft. Refuses to
 #' touch anything outside the Draft prefix.
 #' @param draft_key Full S3 key of the draft (from list_drafts())
