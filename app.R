@@ -51,6 +51,7 @@ source("R/build_report.R")
 source("R/build_event_core.R")
 source("R/build_occurrence.R")
 source("R/build_dna_extension.R")
+source("R/build_emof.R")
 source("R/worms_match.R")
 source("R/qc_checks.R")
 source("R/build_eml.R")
@@ -784,7 +785,27 @@ ui <- page_fluid(
                       " (and methods) in eml.xml, so it shows on the dataset's OBIS and GBIF page.",
                       " Example: https://www.ebi.ac.uk/ena/browser/view/PRJEB107937 (an ENA project).",
                       " Only add it once the reads are public; leave blank if they haven't been released yet."),
-                    value = "", placeholder = "e.g. https://www.ebi.ac.uk/ena/browser/view/PRJEB107937")
+                    value = "", placeholder = "e.g. https://www.ebi.ac.uk/ena/browser/view/PRJEB107937"),
+                  textInput("vessel_name", width = "100%",
+                    optional_label("Vessel",
+                      "The ship the samples were collected on. MAT adds it to every sample in an extra file,",
+                      " the extendedMeasurementOrFact (eMoF) extension, as \"Sampling platform name\" - the way the OBIS manual",
+                      " recommends recording a vessel. It's also added as a sentence to the methods in eml.xml.",
+                      " Example: \"RV Investigator\". Leave blank for shore or small-boat sampling - then no eMoF file is made."),
+                    value = "", placeholder = "e.g. RV Investigator"),
+                  textInput("vessel_code_uri", width = "100%",
+                    optional_label("Vessel code link (ICES platform code)",
+                      "The vessel's entry in the international ICES platform code list (NERC vocabulary C17), so OBIS can link",
+                      " the records to that exact ship. Find it by searching the vessel name at vocab.nerc.ac.uk/search_nvs/C17/.",
+                      " Example for RV Investigator: http://vocab.nerc.ac.uk/collection/C17/current/096U/.",
+                      " Only used together with Vessel."),
+                    value = "", placeholder = "e.g. http://vocab.nerc.ac.uk/collection/C17/current/096U/"),
+                  textInput("voyage_id", width = "100%",
+                    optional_label("Voyage ID",
+                      "The voyage (cruise) code the samples were collected on, so people can find the voyage record and its other data.",
+                      " It's noted with the vessel on every sample in the eMoF file, and in the eml.xml methods.",
+                      " Example: \"IN2024_V04\" (the format RV Investigator voyage codes use)."),
+                    value = "", placeholder = "e.g. IN2024_V04")
                 )
               )
             ),
@@ -1651,7 +1672,10 @@ server <- function(input, output, session) {
     # Optional Step 1 fields: blank = not supplied (NA), never a placeholder.
     opt <- function(x) { x <- trimws(x %||% ""); if (nzchar(x)) x else NA_character_ }
     rv$answers <- list(georeference_sources     = opt(input$georeference_sources),
-                       associated_sequences_uri = opt(input$associated_sequences_uri))
+                       associated_sequences_uri = opt(input$associated_sequences_uri),
+                       vessel_name              = opt(input$vessel_name),
+                       vessel_code_uri          = opt(input$vessel_code_uri),
+                       voyage_id                = opt(input$voyage_id))
     withProgress(message = "Validating uploaded files...", value = 0.3, {
       rv$validation <- tryCatch(
         validate_faire_files(
@@ -1983,10 +2007,16 @@ server <- function(input, output, session) {
           occurrence_tables        = occ$occurrence,
           assay_project_column     = assay_project_column
         )
+        emof <- build_emof(
+          event_ids   = ec$event_core$eventID,
+          vessel_name = rv$answers$vessel_name,
+          vessel_uri  = rv$answers$vessel_code_uri,
+          voyage_id   = rv$answers$voyage_id
+        )
         incProgress(0.2)
 
         list(event_core = ec$event_core, controls = ec$controls, occurrence = occ$occurrence, dna_extension = dna$dna_extension,
-             assay_coverage = ec$assay_coverage)
+             emof = emof, assay_coverage = ec$assay_coverage)
       }, error = function(e) {
         rv$build_error <- conditionMessage(e)
         NULL
@@ -2038,7 +2068,7 @@ server <- function(input, output, session) {
   })
 
   render_mapping_card <- function(r) {
-    m <- tryCatch(check_dwc_mapping(r$event_core, r$occurrence, r$dna_extension), error = function(e) NULL)
+    m <- tryCatch(check_dwc_mapping(r$event_core, r$occurrence, r$dna_extension, r$emof), error = function(e) NULL)
     if (is.null(m)) return(NULL)
 
     n_total <- nrow(m)
@@ -2869,7 +2899,7 @@ server <- function(input, output, session) {
     req(rv$build_result, rv$worms_result)
     withProgress(message = "Running QC checks...", value = 0.3, {
       result <- tryCatch(
-        run_qc_checks(rv$build_result$event_core, final_occurrence(), final_dna()),
+        run_qc_checks(rv$build_result$event_core, final_occurrence(), final_dna(), rv$build_result$emof),
         error = function(e) {
           showNotification(paste("QC checks failed:", conditionMessage(e)), type = "error", duration = NULL)
           NULL
@@ -3218,7 +3248,8 @@ server <- function(input, output, session) {
 
     keywords <- trimws(strsplit(input$eml_keywords %||% "", ",")[[1]])
     abstract_paragraphs <- strsplit(input$eml_abstract %||% "", "\n")[[1]]
-    method_steps <- c(strsplit(input$eml_methods %||% "", "\n")[[1]], uneven_samples_method_note(), name_choice_method_note(), exclusion_method_note())
+    method_steps <- c(strsplit(input$eml_methods %||% "", "\n")[[1]], uneven_samples_method_note(), name_choice_method_note(), exclusion_method_note(),
+                      platform_method_note(rv$answers$vessel_name, rv$answers$voyage_id))
     # Raw-read link (Step 1): OBIS's dataset page shows the abstract but not
     # the methods, so the link goes in both (unless already typed there).
     reads_note <- raw_reads_sentence(rv$answers$associated_sequences_uri)
@@ -3250,7 +3281,10 @@ server <- function(input, output, session) {
         funding                   = input$eml_funding,
         study_area_description    = input$eml_study_area_desc,
         design_description        = input$eml_design_desc,
-        project_personnel         = project_personnel
+        project_personnel         = project_personnel,
+        coverage                  = tryCatch(
+          eml_coverage_from_data(rv$build_result$event_core, final_occurrence(), rv$worms_result$matched_df),
+          error = function(e) NULL)
       ),
       error = function(e) {
         showNotification(paste("Could not generate metadata:", conditionMessage(e)), type = "error", duration = NULL)
@@ -3355,7 +3389,7 @@ server <- function(input, output, session) {
     taxonomy_df <- taxonomy_df[!(taxonomy_df$Resolution %in% c("Updated to WoRMS spelling or accepted name", "Not yet in WoRMS (kept as identified)",
                                                                "Recorded as Biota incertae sedis") & taxonomy_df$Names == 0), ]
 
-    m <- tryCatch(check_dwc_mapping(rv$build_result$event_core, final_occurrence(), final_dna()), error = function(e) NULL)
+    m <- tryCatch(check_dwc_mapping(rv$build_result$event_core, final_occurrence(), final_dna(), rv$build_result$emof), error = function(e) NULL)
     mapping <- if (is.null(m)) NULL else list(ok = sum(m$status %in% c("ok", "expected")), total = nrow(m),
                                               issues = sum(m$status %in% c("not_a_term", "wrong_type")))
     qc <- if (is.null(rv$qc_result)) NULL else list(
@@ -3435,6 +3469,10 @@ server <- function(input, output, session) {
       }
       for (a in names(dna_final)) {
         write.csv(dna_final[[a]], file.path(tmpdir, paste0("DNADerivedData_", a, ".csv")), row.names = FALSE, na = "")
+      }
+      # Optional: only when a vessel was given in Step 1 (see R/build_emof.R).
+      if (!is.null(rv$build_result$emof)) {
+        write.csv(rv$build_result$emof, file.path(tmpdir, "ExtendedMeasurementOrFact.csv"), row.names = FALSE, na = "")
       }
       if (!is.null(rv$eml_xml)) {
         writeLines(rv$eml_xml, file.path(tmpdir, "eml.xml"))
@@ -3777,6 +3815,9 @@ server <- function(input, output, session) {
     rv$answers      <- list(georeference_sources = NA_character_, associated_sequences_uri = NA_character_)
     updateTextInput(session, "georeference_sources", value = "")
     updateTextInput(session, "associated_sequences_uri", value = "")
+    updateTextInput(session, "vessel_name", value = "")
+    updateTextInput(session, "vessel_code_uri", value = "")
+    updateTextInput(session, "voyage_id", value = "")
     rv$build_result <- NULL
     rv$build_error  <- NULL
     rv$worms_result <- NULL

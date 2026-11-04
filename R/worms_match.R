@@ -133,7 +133,11 @@ match_worms <- function(occurrence_tables,
       worms_isMarine        = rec$isMarine[1],
       worms_isBrackish      = rec$isBrackish[1],
       worms_isFreshwater    = rec$isFreshwater[1],
-      worms_isTerrestrial   = rec$isTerrestrial[1]
+      worms_isTerrestrial   = rec$isTerrestrial[1],
+      # Higher taxonomy, for the eml.xml taxonomic coverage (build_eml.R)
+      worms_kingdom         = if (!is.null(rec$kingdom)) rec$kingdom[1] else NA_character_,
+      worms_phylum          = if (!is.null(rec$phylum))  rec$phylum[1]  else NA_character_,
+      worms_class           = if (!is.null(rec$class))   rec$class[1]   else NA_character_
     )
   }
 
