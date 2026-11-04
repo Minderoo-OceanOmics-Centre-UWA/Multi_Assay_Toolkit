@@ -13,7 +13,8 @@
 # Columns that aren't a term of the table's definition but are intentional.
 DWC_EXPECTED_NON_TERMS <- list(
   occurrence       = c(seq_id = "ASV id - used to build occurrenceID and to look up the DNA sequence; the IPT will list it as unmapped, which is harmless."),
-  dna_derived_data = c(eventID = "Link back to the Event core (the extension's core id) - not a term of the extension itself.")
+  dna_derived_data = c(eventID = "Link back to the Event core (the extension's core id) - not a term of the extension itself."),
+  emof             = c(eventID = "Link back to the Event core (the extension's core id) - not a term of the extension itself.")
 )
 
 .load_terms <- function(name) {
@@ -56,13 +57,16 @@ DWC_EXPECTED_NON_TERMS <- list(
 
 #' @return data.frame(table, column, status, detail); status is one of
 #'   "ok", "expected", "not_a_term", "wrong_type"
-check_dwc_mapping <- function(event, occurrence_tables, dna_tables) {
+check_dwc_mapping <- function(event, occurrence_tables, dna_tables, emof = NULL) {
   parts <- list(.check_one_table("Event core", event, "event"))
   for (a in names(occurrence_tables)) {
     parts[[length(parts) + 1]] <- .check_one_table(paste0("Occurrence - ", a), occurrence_tables[[a]], "occurrence")
   }
   for (a in names(dna_tables)) {
     parts[[length(parts) + 1]] <- .check_one_table(paste0("DNA Derived Data - ", a), dna_tables[[a]], "dna_derived_data")
+  }
+  if (!is.null(emof)) {
+    parts[[length(parts) + 1]] <- .check_one_table("Extended MeasurementOrFact", emof, "emof")
   }
   do.call(rbind, parts)
 }

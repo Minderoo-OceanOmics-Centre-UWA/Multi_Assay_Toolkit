@@ -13,7 +13,7 @@
 #' @param dna_tables Named list of per-assay DNA Derived Data tibbles
 #' @return list(results = named list of check outputs, any_failures = logical,
 #'   any_skipped = character vector, messages = character vector)
-run_qc_checks <- function(event, occurrence_tables, dna_tables) {
+run_qc_checks <- function(event, occurrence_tables, dna_tables, emof = NULL) {
   messages <- character()
   log_msg <- function(...) messages <<- c(messages, paste0(...))
 
@@ -93,6 +93,13 @@ run_qc_checks <- function(event, occurrence_tables, dna_tables) {
     }
     ext_check <- obistools::check_extension_eventids(event, dna_tables[[n]])
     results[[paste0("check_extension_eventids_dna_", n)]] <- ext_check
+    if (length(ext_check) > 0 && !all(is.na(ext_check))) any_failures <- TRUE
+  }
+
+  # Optional eMoF extension (vessel/voyage): every row must link to an event.
+  if (!is.null(emof)) {
+    ext_check <- obistools::check_extension_eventids(event, emof)
+    results[["check_extension_eventids_emof"]] <- ext_check
     if (length(ext_check) > 0 && !all(is.na(ext_check))) any_failures <- TRUE
   }
 

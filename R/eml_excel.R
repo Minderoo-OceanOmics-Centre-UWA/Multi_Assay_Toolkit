@@ -115,6 +115,21 @@ write_person_rows_sheet <- function(wb, sheet_name, people, columns, column_labe
 # fully-blank rows (e.g. the template's single empty starter row).
 # Returns list() (not an error) if the sheet is missing entirely, so an
 # older template without it still loads.
+# Some Excel files come back from openxlsx with XML codes still in the text
+# ("Data Use &amp; Sharing" instead of "Data Use & Sharing"). build_eml.R
+# escapes again when writing eml.xml, which would publish "&amp;amp;".
+# Decode them here so the text is plain again. "&amp;" goes last so a
+# literal "&amp;lt;" isn't decoded twice.
+decode_xml_entities <- function(x) {
+  if (!is.character(x)) return(x)
+  x <- gsub("&lt;", "<", x, fixed = TRUE)
+  x <- gsub("&gt;", ">", x, fixed = TRUE)
+  x <- gsub("&quot;", '"', x, fixed = TRUE)
+  x <- gsub("&apos;", "'", x, fixed = TRUE)
+  x <- gsub("&#39;", "'", x, fixed = TRUE)
+  gsub("&amp;", "&", x, fixed = TRUE)
+}
+
 read_person_rows_sheet <- function(path, sheet_name, columns, column_labels) {
   tryCatch({
     raw <- openxlsx::read.xlsx(path, sheet = sheet_name, colNames = TRUE)
@@ -124,7 +139,7 @@ read_person_rows_sheet <- function(path, sheet_name, columns, column_labels) {
     names(raw) <- columns[match(names(raw), sanitized_labels)]
     rows <- lapply(seq_len(nrow(raw)), function(i) {
       row <- as.list(raw[i, ])
-      lapply(row, function(v) if (is.na(v)) "" else as.character(v))
+      lapply(row, function(v) if (is.na(v)) "" else decode_xml_entities(as.character(v)))
     })
     Filter(function(r) any(nzchar(trimws(unlist(r)))), rows)
   }, error = function(e) list())
@@ -203,7 +218,7 @@ read_eml_metadata_excel <- function(path) {
 
     val <- raw$Value[i]
     if (is.na(val) || !nzchar(trimws(as.character(val)))) next
-    val <- gsub("\r\n", "\n", as.character(val))
+    val <- decode_xml_entities(gsub("\r\n", "\n", as.character(val)))
 
     values[[key]] <- switch(def$type,
       logical = toupper(trimws(val)) %in% c("TRUE", "YES", "Y", "1"),

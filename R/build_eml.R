@@ -83,6 +83,8 @@ random_uuid <- function() {
 #'   <personnel> element per entry inside <project>. Independent of
 #'   `creator`/`contact` - a project's personnel can be different people
 #'   in different roles. Ignored if project_id is NULL/empty.
+#' @param coverage Optional list from eml_coverage_from_data() (geographic,
+#'   temporal and taxonomic coverage). NULL/empty parts are left out.
 #' @return A single character string: the complete eml.xml document
 build_eml_xml <- function(package_id = NULL,
                            title,
@@ -105,7 +107,8 @@ build_eml_xml <- function(package_id = NULL,
                            funding = NULL,
                            study_area_description = NULL,
                            design_description = NULL,
-                           project_personnel = list()) {
+                           project_personnel = list(),
+                           coverage = NULL) {
 
   if (is.null(package_id) || !nzchar(package_id)) package_id <- random_uuid()
 
@@ -141,6 +144,8 @@ build_eml_xml <- function(package_id = NULL,
       person_xml("associatedParty", p, role = if (!is.null(p$role) && nzchar(p$role)) p$role else "PUBLISHER")
     }, character(1)), collapse = "")
   } else ""
+
+  coverage_xml <- coverage_to_xml(coverage)
 
   distribution_xml <- if (!is.null(distribution_url) && nzchar(distribution_url)) {
     paste0(
@@ -200,6 +205,7 @@ build_eml_xml <- function(package_id = NULL,
     '\t\t<citetitle>', xml_escape(license_title), '</citetitle>\n\t</ulink>.\n',
     '                </para>\n\t</intellectualRights>\n',
     distribution_xml,
+    coverage_xml,
     '\t<maintenance>\n\t\t<description>\n\t\t\t<para></para>\n\t\t</description>\n',
     '\t\t<maintenanceUpdateFrequency>unknown</maintenanceUpdateFrequency>\n\t</maintenance>\n',
     person_xml("contact", contact),
@@ -219,4 +225,105 @@ build_eml_xml <- function(package_id = NULL,
   xml2::read_xml(xml)
 
   xml
+}
+
+
+# ---- Coverage (geographic / temporal / taxonomic) --------------------------
+# Worked out from the data itself, so it's always filled in and always
+# matches what is published. Before this, coverage was only ever typed into
+# the IPT by hand - and uploading a new eml.xml replaced it with nothing.
+
+#' @param event Event core table (decimalLatitude, decimalLongitude, eventDate, geo_loc_name)
+#' @param occurrence_tables Named list of final Occurrence tables (per assay)
+#' @param matched_df match_worms()'s matched_df (worms_kingdom / worms_class), or NULL
+#' @return list(geo = list(description, west, east, north, south) or NULL,
+#'              temporal = list(begin, end) or NULL,
+#'              taxonomic = list(description, classification = data.frame(rank, value)) or NULL)
+eml_coverage_from_data <- function(event, occurrence_tables = list(), matched_df = NULL) {
+  out <- list(geo = NULL, temporal = NULL, taxonomic = NULL)
+
+  # Geographic: bounding box of every published sample.
+  lat <- suppressWarnings(as.numeric(event$decimalLatitude))
+  lon <- suppressWarnings(as.numeric(event$decimalLongitude))
+  ok  <- !is.na(lat) & !is.na(lon) & abs(lat) <= 90 & abs(lon) <= 180
+  if (any(ok)) {
+    places <- if ("geo_loc_name" %in% names(event)) unique(stats::na.omit(trimws(as.character(event$geo_loc_name)))) else character()
+    places <- places[nzchar(places)]
+    out$geo <- list(
+      description = paste0(
+        if (length(places)) paste0(paste(places, collapse = "; "), ". ") else "",
+        "Bounding box of the ", sum(ok), " sampling locations in this dataset."),
+      west = round(min(lon[ok]), 4), east = round(max(lon[ok]), 4),
+      north = round(max(lat[ok]), 4), south = round(min(lat[ok]), 4)
+    )
+  }
+
+  # Temporal: first and last sampling day. eventDate may be a date, a
+  # date-time or an interval ("a/b"); only full YYYY-MM-DD parts are used.
+  d <- unlist(strsplit(as.character(stats::na.omit(event$eventDate)), "/", fixed = TRUE))
+  d <- substr(trimws(d), 1, 10)
+  d <- d[grepl("^\\d{4}-\\d{2}-\\d{2}$", d)]
+  d <- d[!is.na(suppressWarnings(as.Date(d, optional = TRUE)))]
+  if (length(d)) out$temporal <- list(begin = min(d), end = max(d))
+
+  # Taxonomic: kingdoms and classes of the published records, from WoRMS.
+  ids <- unique(unlist(lapply(occurrence_tables, function(t) t$scientificNameID)))
+  ids <- ids[!is.na(ids) & nzchar(ids)]
+  if (!is.null(matched_df) && nrow(matched_df) > 0 && length(ids) && "worms_class" %in% names(matched_df)) {
+    # A record switched to WoRMS' accepted name carries that name's AphiaID.
+    key <- c(matched_df$scientificNameID,
+             paste0("urn:lsid:marinespecies.org:taxname:", matched_df$worms_valid_AphiaID))
+    tax <- rbind(matched_df[, c("worms_kingdom", "worms_class")], matched_df[, c("worms_kingdom", "worms_class")])
+    tax <- unique(tax[key %in% ids, , drop = FALSE])
+    kingdoms <- sort(unique(stats::na.omit(tax$worms_kingdom)))
+    classes  <- sort(unique(stats::na.omit(tax$worms_class)))
+    if (length(kingdoms) || length(classes)) {
+      assays <- names(occurrence_tables)
+      out$taxonomic <- list(
+        description = paste0(
+          "Taxa detected by eDNA metabarcoding",
+          if (length(assays)) paste0(" (", paste(assays, collapse = ", "), " assays)") else "",
+          if (length(classes)) paste0(", in the classes: ", paste(classes, collapse = ", ")) else "",
+          ". Classes are taken from WoRMS for the names published in this dataset.",
+          " Sequences that could not be identified are recorded as Biota incertae sedis."),
+        classification = rbind(
+          data.frame(rank = rep("kingdom", length(kingdoms)), value = kingdoms, stringsAsFactors = FALSE),
+          data.frame(rank = rep("class", length(classes)), value = classes, stringsAsFactors = FALSE))
+      )
+    }
+  }
+  out
+}
+
+coverage_to_xml <- function(coverage) {
+  if (is.null(coverage) || (is.null(coverage$geo) && is.null(coverage$temporal) && is.null(coverage$taxonomic))) return("")
+  g <- coverage$geo; t <- coverage$temporal; x <- coverage$taxonomic
+  paste0(
+    "\t<coverage>\n",
+    if (!is.null(g)) paste0(
+      "\t\t<geographicCoverage>\n",
+      "\t\t\t<geographicDescription>", xml_escape(g$description), "</geographicDescription>\n",
+      "\t\t\t<boundingCoordinates>\n",
+      "\t\t\t\t<westBoundingCoordinate>", g$west, "</westBoundingCoordinate>\n",
+      "\t\t\t\t<eastBoundingCoordinate>", g$east, "</eastBoundingCoordinate>\n",
+      "\t\t\t\t<northBoundingCoordinate>", g$north, "</northBoundingCoordinate>\n",
+      "\t\t\t\t<southBoundingCoordinate>", g$south, "</southBoundingCoordinate>\n",
+      "\t\t\t</boundingCoordinates>\n",
+      "\t\t</geographicCoverage>\n") else "",
+    if (!is.null(t)) paste0(
+      "\t\t<temporalCoverage>\n\t\t\t<rangeOfDates>\n",
+      "\t\t\t\t<beginDate>\n\t\t\t\t\t<calendarDate>", t$begin, "</calendarDate>\n\t\t\t\t</beginDate>\n",
+      "\t\t\t\t<endDate>\n\t\t\t\t\t<calendarDate>", t$end, "</calendarDate>\n\t\t\t\t</endDate>\n",
+      "\t\t\t</rangeOfDates>\n\t\t</temporalCoverage>\n") else "",
+    if (!is.null(x)) paste0(
+      "\t\t<taxonomicCoverage>\n",
+      "\t\t\t<generalTaxonomicCoverage>", xml_escape(x$description), "</generalTaxonomicCoverage>\n",
+      paste(vapply(seq_len(nrow(x$classification)), function(i) paste0(
+        "\t\t\t<taxonomicClassification>\n",
+        "\t\t\t\t<taxonRankName>", xml_escape(x$classification$rank[i]), "</taxonRankName>\n",
+        "\t\t\t\t<taxonRankValue>", xml_escape(x$classification$value[i]), "</taxonRankValue>\n",
+        "\t\t\t</taxonomicClassification>\n"), character(1)), collapse = ""),
+      "\t\t</taxonomicCoverage>\n") else "",
+    "\t</coverage>\n"
+  )
 }
