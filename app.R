@@ -2134,9 +2134,14 @@ server <- function(input, output, session) {
       incProgress(0.8)
     })
     if (!is.null(result)) {
+      # Spelling variants and newer names both start on WoRMS' form (the
+      # user's choice, 2026-11-04); the reviewer can switch any row back to
+      # the original in Step 4. Only names new to this run get the default,
+      # so a re-run doesn't undo a row the reviewer switched back.
+      prev_syn <- rv$worms_result$synonym_df$queriedName %||% character()
+      new_syn  <- setdiff(result$synonym_df$queriedName %||% character(), prev_syn)
+      rv$use_accepted_names <- union(rv$use_accepted_names, new_syn)
       rv$worms_result <- result
-      # Spelling variants and newer names both start on the original name;
-      # the reviewer switches any row to the WoRMS form in Step 4.
       # Any change to taxonomy matching invalidates a previously-run QC
       # result - clear it so Step 5 re-checks fresh instead of silently
       # showing a stale pass/fail from before this change.
@@ -2472,8 +2477,8 @@ server <- function(input, output, session) {
           # ---- 2. Optional name updates --------------------------------------
           nav_panel(
             tab_label("Name updates", n_updates), value = "updates",
-            tab_intro(strong("Optional."), " WoRMS knows these names in a newer form. OBIS links them to the current name automatically when it publishes your data, ",
-                      "so the original names are fine to keep. Choose here only if you want the archive itself to use the WoRMS form."),
+            tab_intro(strong("Optional."), " WoRMS knows these names in a newer form. They are set to the ", strong("WoRMS form"), " by default. ",
+                      "Keeping the original is also fine - OBIS links it to the current name when it publishes your data - so switch a row back only if you prefer your own name."),
             if (n_updates == 0) nothing("No names need updating - every matched name is already in its current WoRMS form."),
             if (n_known_misspellings > 0) {
               card(
@@ -2482,8 +2487,8 @@ server <- function(input, output, session) {
                   p(class = "muted", "Same species, same name - WoRMS uses a different spelling. Usually it's the Latin ending: a species name must agree in gender with its genus, ",
                     "so the ending changes when the genus is re-assessed (", tags$em("heptacanthus"), " / ", tags$em("heptacantha"), "). ",
                     "WoRMS files the older form under the technical status \"misspelling\"; it isn't a mistake in your data, just an older spelling."),
-                  p(class = "muted", "These keep the ", strong("original spelling"), " from your data by default - it stays linked to its WoRMS record, and OBIS shows the WoRMS spelling. ",
-                    "Switch a row to ", strong("WoRMS spelling"), " if you want the archive itself to use it. ",
+                  p(class = "muted", "These use the ", strong("WoRMS spelling"), " by default. ",
+                    "Switch a row to ", strong("Original spelling"), " to keep the form in your data - it stays linked to its WoRMS record. ",
                     "Your original always stays in ", tags$code("verbatimIdentification"), ", and a change is noted in ", tags$code("identificationRemarks"), "."),
                   uiOutput("misspelling_table")
                 )
@@ -2493,7 +2498,7 @@ server <- function(input, output, session) {
               card(
                 card_header(bsicons::bs_icon("arrow-left-right", class = "section-icon"), "Names WoRMS lists under a newer name"),
                 card_body(
-                  p(class = "muted", "WoRMS recognises these names but now uses a different accepted name for the same taxon (for example after a genus change). Choose, for each one, whether to publish the WoRMS accepted name or the original name."),
+                  p(class = "muted", "WoRMS recognises these names but now uses a different accepted name for the same taxon (for example after a genus change). Each is set to the ", strong("WoRMS accepted name"), " by default; switch a row to keep the original name instead."),
                   p(class = "muted small", strong("Keeping the original name is valid: "), "it stays linked to its WoRMS record, and OBIS shows the records under the accepted name. Switching makes the archive use the current name directly. Either way your original name is kept in ",
                     tags$code("verbatimIdentification"), ", and a switch is noted in ", tags$code("identificationRemarks"), "."),
                   uiOutput("synonym_table")
