@@ -40,7 +40,8 @@ build_emof <- function(event_ids, vessel_name, vessel_uri = NA_character_, voyag
     measurementValueID = value_id,
     measurementUnit    = NA_character_,
     measurementUnitID  = NA_character_,
-    measurementRemarks = NA_character_,
+    # No measurementRemarks column: it was always empty once the voyage got
+    # its own row, so it was dropped (2026-11-04).
     stringsAsFactors   = FALSE
   )
 

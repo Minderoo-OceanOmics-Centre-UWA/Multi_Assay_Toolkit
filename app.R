@@ -2150,6 +2150,7 @@ server <- function(input, output, session) {
   }
 
   observeEvent(input$run_worms, { run_worms_matching() })
+  observeEvent(input$retry_worms, { run_worms_matching() })
 
   # Names the user excluded in Step 4 (likely contamination) are removed
   # here, by WoRMS ID, from the Occurrence tables and - via occurrenceID -
@@ -2370,7 +2371,25 @@ server <- function(input, output, session) {
 
     stat_box <- function(value, label) div(class = "stat-box", div(class = "stat-value", value), div(class = "stat-label", label))
 
+    failed <- r$failed_names %||% character()
+
     tagList(
+      # WoRMS didn't answer for some names (busy/slow server). Those names
+      # have no ID yet - not because they aren't in WoRMS - so Continue is
+      # blocked until a re-run gets an answer for them.
+      if (length(failed) > 0) {
+        card(
+          class = "issue-card warning",
+          card_header(bsicons::bs_icon("wifi-off", class = "section-icon"), "WoRMS didn't respond for some names"),
+          card_body(
+            p(strong(length(failed), if (length(failed) == 1) " name was" else " names were", " not checked"),
+              ", because WoRMS didn't answer in time (it is sometimes slow or busy). They don't have a WoRMS ID yet - this is not a problem with your data. ",
+              "Run the matching again; your choices so far are kept."),
+            tags$details(class = "muted small mb-3", tags$summary("Show the names"), paste(failed, collapse = ", ")),
+            actionButton("retry_worms", tagList(bsicons::bs_icon("arrow-clockwise"), " Run WoRMS matching again"), class = "btn-primary")
+          )
+        )
+      },
       card(
         card_header(bsicons::bs_icon("bar-chart-fill", class = "section-icon"), "Matching summary"),
         card_body(
@@ -2882,6 +2901,11 @@ server <- function(input, output, session) {
     r <- rv$worms_result
     ambiguous_names <- unique(r$ambiguous_df$queriedName)
     unmatched_names <- name_groups()$misspelt_open
+
+    if (length(r$failed_names) > 0) {
+      showNotification("WoRMS didn't respond for some names. Click \"Run WoRMS matching again\" at the top of this step first.", type = "warning", duration = 8)
+      return()
+    }
 
     if (length(ambiguous_names) > 0 || length(unmatched_names) > 0) {
       if (!isTRUE(input$allow_unresolved)) {
