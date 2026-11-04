@@ -59,11 +59,28 @@ suggest_correction_via_taxamatch <- function(name) {
 #' suggest_correction_via_taxamatch() this keeps several candidates, so a
 #' misspelling with more than one plausible fix is still recognised as a
 #' misspelling (the reviewer picks). Empty when nothing is close.
-fuzzy_candidates_via_taxamatch <- function(name) {
-  result <- tryCatch(worrms::wm_records_taxamatch(name = name, marine_only = FALSE), error = function(e) NULL)
+fuzzy_candidates_via_taxamatch <- function(name, max_attempts = 3, retry_wait = 2) {
+  call <- worms_call(function() worrms::wm_records_taxamatch(name = name, marine_only = FALSE), max_attempts, retry_wait)
+  if (!call$ok) return(NULL)   # WoRMS didn't answer - not the same as "no close names"
+  result <- call$value
   if (is.null(result) || length(result) == 0 || is.null(result[[1]]) || nrow(result[[1]]) == 0) return(character())
   v <- result[[1]]$valid_name
   unique(v[!is.na(v) & nzchar(v)])
+}
+
+# Calls WoRMS, retrying when it times out or errors (it can be slow when
+# busy). A "(204) No Content" reply is a real answer - nothing found - and
+# comes back as ok with value NULL. ok = FALSE only when every attempt failed.
+worms_call <- function(fn, max_attempts = 3, retry_wait = 2, on_fail = function(msg, attempt) NULL) {
+  for (attempt in seq_len(max_attempts)) {
+    value <- tryCatch(fn(), error = function(e) e)
+    if (!inherits(value, "error")) return(list(ok = TRUE, value = value))
+    msg <- conditionMessage(value)
+    if (grepl("(204)", msg, fixed = TRUE)) return(list(ok = TRUE, value = NULL))
+    on_fail(msg, attempt)
+    if (attempt < max_attempts) Sys.sleep(retry_wait * attempt)
+  }
+  list(ok = FALSE, value = NULL)
 }
 
 #' Match every unique scientificName across a set of Occurrence tables
@@ -79,13 +96,17 @@ fuzzy_candidates_via_taxamatch <- function(name) {
 #'   cross-kingdom homonym) - the auto-resolve-on-single-accepted rule can't
 #'   disambiguate these, so each one is a reviewed manual decision
 #' @param batch_size WoRMS query batch size (wm_records_names)
+#' @param max_attempts,retry_wait Retries per WoRMS call (wait grows: 2 s, 4 s, ...)
 #' @return list(occurrence_tables (updated with scientificName/scientificNameID),
 #'   matched_df, ambiguous_df, unmatched_names, resolved_ambiguous_df,
-#'   non_marine_df, messages)
+#'   non_marine_df, failed_names, messages). failed_names = names WoRMS
+#'   never answered for; they have no ID and must be re-run, not published.
 match_worms <- function(occurrence_tables,
                          name_corrections = character(),
                          manual_aphia_overrides = c(),
-                         batch_size = 50) {
+                         batch_size = 50,
+                         max_attempts = 3,
+                         retry_wait = 2) {
   messages <- character()
   log_msg <- function(...) messages <<- c(messages, paste0(...))
 
@@ -141,18 +162,26 @@ match_worms <- function(occurrence_tables,
     )
   }
 
+  # Names WoRMS never answered for (timeouts / server errors, even after
+  # retrying). They are NOT "not in WoRMS" - the app must say so and offer
+  # a re-run, instead of publishing them silently without an ID.
+  failed_names <- character()
+
   for (i in seq_along(batches)) {
     batch <- batches[[i]]
     log_msg("Matching batch ", i, " of ", length(batches), " (", length(batch), " names)...")
 
-    result <- tryCatch(
-      worrms::wm_records_names(name = batch, marine_only = FALSE),
-      error = function(e) {
-        log_msg("  WARNING: batch ", i, " failed: ", conditionMessage(e))
-        NULL
-      }
+    call <- worms_call(
+      function() worrms::wm_records_names(name = batch, marine_only = FALSE),
+      max_attempts, retry_wait,
+      on_fail = function(msg, attempt) log_msg("  WARNING: batch ", i, " attempt ", attempt, " failed: ", msg)
     )
-    if (is.null(result)) next
+    if (!call$ok) {
+      failed_names <- c(failed_names, batch)
+      next
+    }
+    # NULL = 204: WoRMS answered, but no name in the batch has a record.
+    result <- if (is.null(call$value)) vector("list", length(batch)) else call$value
 
     for (j in seq_along(batch)) {
       queried_name <- batch[j]
@@ -200,6 +229,7 @@ match_worms <- function(occurrence_tables,
   log_msg("  - of which auto-resolved from >1 WoRMS record: ", length(resolved_ambiguous))
   log_msg("  Ambiguous (>1 accepted, or 0): ", length(ambiguous_names))
   log_msg("  No match found: ", length(unmatched_names))
+  if (length(failed_names) > 0) log_msg("  WoRMS did not answer for: ", length(failed_names), " name(s) - run matching again")
 
   # For every unmatched name, try WoRMS' own fuzzy-match service as a
   # suggested correction (see suggest_correction_via_taxamatch()) - a
@@ -210,7 +240,15 @@ match_worms <- function(occurrence_tables,
   fuzzy_candidates <- list()
   if (length(unmatched_names) > 0) {
     log_msg("Looking up fuzzy-match suggestions for unmatched names...")
-    fuzzy_candidates <- setNames(lapply(unmatched_names, fuzzy_candidates_via_taxamatch), unmatched_names)
+    fuzzy_candidates <- setNames(lapply(unmatched_names, fuzzy_candidates_via_taxamatch,
+                                        max_attempts = max_attempts, retry_wait = retry_wait), unmatched_names)
+    # NULL = WoRMS didn't answer the close-name search: the name can't be
+    # called "not in WoRMS" yet, so it joins failed_names for a re-run.
+    no_answer <- names(fuzzy_candidates)[vapply(fuzzy_candidates, is.null, logical(1))]
+    if (length(no_answer) > 0) {
+      failed_names    <- c(failed_names, no_answer)
+      unmatched_names <- setdiff(unmatched_names, no_answer)
+    }
     fuzzy_candidates <- fuzzy_candidates[lengths(fuzzy_candidates) > 0]
     single <- fuzzy_candidates[lengths(fuzzy_candidates) == 1]
     suggested_corrections <- vapply(single, function(x) x[1], character(1))
@@ -243,7 +281,8 @@ match_worms <- function(occurrence_tables,
   # Apply matched scientificNameIDs (and corrected scientificName) back
   # into each Occurrence table. A correction that did NOT find a match
   # is left completely untouched (raw name, no ID).
-  lookup <- setNames(matched_df$scientificNameID, matched_df$queriedName)
+  # (character(0), not NULL, when nothing matched - e.g. WoRMS was down)
+  lookup <- if (nrow(matched_df) > 0) setNames(matched_df$scientificNameID, matched_df$queriedName) else setNames(character(), character())
 
   updated_tables <- lapply(occurrence_tables, function(occ) {
     occ %>%
@@ -278,6 +317,7 @@ match_worms <- function(occurrence_tables,
     suggested_corrections  = suggested_corrections,
     fuzzy_candidates       = fuzzy_candidates,   # unmatched name -> every close WoRMS name
     name_lookup          = clean_lookup,   # raw scientificName -> name sent to WoRMS
+    failed_names           = unique(failed_names),   # WoRMS never answered - re-run needed
     messages               = messages
   )
 }
