@@ -791,7 +791,7 @@ ui <- page_fluid(
                       "The ship the samples were collected on. MAT adds it to every sample in an extra file,",
                       " the extendedMeasurementOrFact (eMoF) extension, as \"Sampling platform name\" - the way the OBIS manual",
                       " recommends recording a vessel. It's also added as a sentence to the methods in eml.xml.",
-                      " Example: \"RV Investigator\". Leave blank for shore or small-boat sampling - then no eMoF file is made."),
+                      " Example: \"RV Investigator\". Leave blank for shore or small-boat sampling."),
                     value = "", placeholder = "e.g. RV Investigator"),
                   textInput("vessel_code_uri", width = "100%",
                     optional_label("Vessel code link (ICES platform code)",
@@ -803,7 +803,7 @@ ui <- page_fluid(
                   textInput("voyage_id", width = "100%",
                     optional_label("Voyage ID",
                       "The voyage (cruise) code the samples were collected on, so people can find the voyage record and its other data.",
-                      " It's noted with the vessel on every sample in the eMoF file, and in the eml.xml methods.",
+                      " It's added to every sample in the eMoF file as its own \"Voyage\" row, and to the eml.xml methods.",
                       " Example: \"IN2024_V04\" (the format RV Investigator voyage codes use)."),
                     value = "", placeholder = "e.g. IN2024_V04")
                 )
@@ -3470,7 +3470,7 @@ server <- function(input, output, session) {
       for (a in names(dna_final)) {
         write.csv(dna_final[[a]], file.path(tmpdir, paste0("DNADerivedData_", a, ".csv")), row.names = FALSE, na = "")
       }
-      # Optional: only when a vessel was given in Step 1 (see R/build_emof.R).
+      # Optional: only when a vessel or voyage was given in Step 1 (see R/build_emof.R).
       if (!is.null(rv$build_result$emof)) {
         write.csv(rv$build_result$emof, file.path(tmpdir, "ExtendedMeasurementOrFact.csv"), row.names = FALSE, na = "")
       }
