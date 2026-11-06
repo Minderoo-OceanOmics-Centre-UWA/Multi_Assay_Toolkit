@@ -210,3 +210,14 @@ list_published <- function() list_s3_folder(s3_publish_prefix())
 
 #' Fetch a saved archive's bytes from S3 into a local file (for a downloadHandler).
 fetch_archive_from_s3 <- function(s3_key, dest) .s3_get(s3_key, dest)
+
+#' Public HTTPS link to an S3 object - what an OBIS node uses to harvest the
+#' archive. It only opens for people outside the team if the bucket policy
+#' makes that prefix publicly readable (see the NOTE at the top of this file).
+s3_public_url <- function(s3_key) {
+  region <- Sys.getenv("AWS_DEFAULT_REGION")
+  if (!nzchar(region)) region <- "ap-southeast-2"
+  path <- paste(vapply(strsplit(s3_key, "/", fixed = TRUE)[[1]], utils::URLencode, character(1), reserved = TRUE),
+                collapse = "/")
+  paste0("https://", s3_bucket_name(), ".s3.", region, ".amazonaws.com/", path)
+}

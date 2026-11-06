@@ -43,3 +43,10 @@ SUPPORT_CONTACT_EMAIL=data-team@your-organisation.org
 # SMTP_PORT=587
 SMTP_USER=
 SMTP_PASSWORD=
+
+# --- "Notify OBIS node" in the Publish tab (see R/obis_notify.R) -------------
+# Optional default recipient(s), comma-separated. Uses the SMTP account above.
+# Left unset, the user types the address in the popup.
+# OBIS_NODE_EMAIL=
+# Organisation named in that email (default "OceanOmics Centre").
+# MAT_ORG_NAME=

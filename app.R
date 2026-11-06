@@ -58,6 +58,7 @@ source("R/build_eml.R")
 source("R/eml_excel.R")
 source("R/archive_history.R")
 source("R/user_auth.R")
+source("R/obis_notify.R")
 source("R/about_page.R")
 source("R/footer_policies.R")
 
@@ -511,6 +512,31 @@ app_css <- "
   .step-circle { width: 32px; height: 32px; font-size: 0.8rem; }
   .step-label { font-size: 0.76rem; font-weight: 500; color: #98a2b3; }
   .step-label.active { color: #101828; font-weight: 700; }
+
+  /* Publish tab: one row per archive, its actions on the same row */
+  .pub-list { display: flex; flex-direction: column; gap: 12px; }
+  .pub-item { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 16px 18px;
+              background: #fff; border: 1px solid #dde3ee; border-radius: 10px;
+              transition: border-color .15s, box-shadow .15s; }
+  .pub-item:hover { border-color: #003087; box-shadow: 0 4px 14px rgba(0,48,135,.08); }
+  .pub-icon { flex: none; width: 46px; height: 46px; border-radius: 10px; background: #e5ecf7; color: #003087;
+              display: flex; align-items: center; justify-content: center; font-size: 22px; }
+  .pub-main { flex: 1 1 340px; min-width: 0; }
+  .pub-title { font-weight: 700; font-size: 1.05rem; color: #0a1b2e; }
+  .pub-badge { display: inline-block; margin-left: 8px; padding: 2px 9px; border-radius: 999px; font-size: .72rem;
+               font-weight: 600; background: #e7f6ec; color: #1e7a3c; vertical-align: middle; }
+  .pub-meta { display: flex; gap: 6px 16px; flex-wrap: wrap; margin-top: 2px; color: #55607a; font-size: .85rem; }
+  .pub-meta .bi { margin-right: 4px; }
+  .pub-link { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding: 4px 4px 4px 10px;
+              background: #f4f6fa; border: 1px solid #e5ecf7; border-radius: 8px; max-width: 640px; }
+  .pub-link a.pub-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                        font-family: ui-monospace, Consolas, monospace; font-size: .8rem; color: #1c2e5b; text-decoration: none; }
+  .pub-link a.pub-url:hover { text-decoration: underline; }
+  .pub-link .btn { flex: none; padding: 3px 10px; font-size: .8rem; }
+  .pub-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .pub-actions .btn { white-space: nowrap; }
+  .pub-empty { text-align: center; padding: 36px 16px; color: #55607a; }
+  .pub-empty .bi { font-size: 2rem; color: #98a2b3; display: block; margin-bottom: 8px; }
 "
 
 # ---------------------------------------------------------------------
@@ -2336,7 +2362,7 @@ server <- function(input, output, session) {
           card_body(
             p(class = "muted", paste0(n_names, " unique scientific name(s) will be matched against the World Register of Marine Species (WoRMS).")),
             div(class = "alert alert-info small",
-                strong("Why this step? "), "OBIS uses WoRMS as its only taxonomic reference, and runs its own name checks when your dataset is published. ",
+                strong("Why this step? "), "OBIS uses WoRMS as its main taxonomic reference, and runs its own name checks when your dataset is published. ",
                 "This step shows you, before publishing, what those checks would flag:",
                 tags$ul(class = "mb-2 mt-1",
                   tags$li("spelling variants and outdated names (synonyms)"),
@@ -2499,6 +2525,12 @@ server <- function(input, output, session) {
             tab_intro(strong("Optional."), " WoRMS knows these names in a newer form. They are set to the ", strong("WoRMS form"), " by default. ",
                       "Keeping the original is also fine - OBIS links it to the current name when it publishes your data - so switch a row back only if you prefer your own name."),
             if (n_updates == 0) nothing("No names need updating - every matched name is already in its current WoRMS form."),
+            if (n_known_misspellings > 0 && n_synonyms > 0) {
+              div(class = "d-flex gap-2 align-items-center flex-wrap mb-3",
+                  span(class = "muted small", strong("Change every name in this tab at once:")),
+                  syn_all_btn("all", TRUE, "check2-all", "Use WoRMS names for all", class = "btn btn-sm btn-primary"),
+                  syn_all_btn("all", FALSE, "arrow-counterclockwise", "Keep all original names", class = "btn btn-sm btn-outline-primary"))
+            },
             if (n_known_misspellings > 0) {
               card(
                 card_header(bsicons::bs_icon("spellcheck", class = "section-icon"), "Spelling variants"),
@@ -2709,6 +2741,25 @@ server <- function(input, output, session) {
     if (is.null(syn) || nrow(syn) == 0) return(syn)
     syn[is_misspelling(syn$worms_status) == misspellings, , drop = FALSE]
   }
+  # "Change all at once" buttons. scope: "misspellings", "synonyms" or "all"
+  # (both tables). Rows can still be switched one by one afterwards.
+  syn_all_btn <- function(scope, accept, icon, label, class = "btn btn-sm btn-outline-secondary btn-white") {
+    tags$button(type = "button", class = class,
+                onclick = sprintf("Shiny.setInputValue('syn_all', {scope: '%s', accept: %s}, {priority: 'event'})",
+                                  scope, if (accept) "true" else "false"),
+                bsicons::bs_icon(icon), " ", label)
+  }
+  observeEvent(input$syn_all, {
+    ch <- input$syn_all
+    nms <- switch(ch$scope,
+                  misspellings = syn_rows(TRUE)$queriedName,
+                  synonyms     = syn_rows(FALSE)$queriedName,
+                  rv$worms_result$synonym_df$queriedName) %||% character()
+    if (length(nms) == 0) return()
+    rv$use_accepted_names <- if (isTRUE(ch$accept)) union(rv$use_accepted_names, nms) else setdiff(rv$use_accepted_names, nms)
+    rv$qc_result <- NULL
+    rv$eml_xml <- NULL
+  })
   output$synonym_table <- renderUI(syn_table_ui(syn_rows(FALSE), misspellings = FALSE))
   output$misspelling_table <- renderUI(syn_table_ui(syn_rows(TRUE), misspellings = TRUE))
   syn_table_ui <- function(syn, misspellings) {
@@ -2721,7 +2772,11 @@ server <- function(input, output, session) {
                    checked = if (checked) NA, onchange = js),
         span(label))
     }
+    scope <- if (misspellings) "misspellings" else "synonyms"
     tagList(
+      div(class = "d-flex gap-2 justify-content-end mb-2 flex-wrap",
+          syn_all_btn(scope, TRUE, "check2-all", if (misspellings) "Use all WoRMS spellings" else "Use all WoRMS accepted names"),
+          syn_all_btn(scope, FALSE, "arrow-counterclockwise", if (misspellings) "Keep all original spellings" else "Keep all original names")),
       tags$table(class = "table align-middle",
         tags$thead(tags$tr(tags$th("Original name"), tags$th(if (misspellings) "WoRMS spelling" else "WoRMS accepted name"),
                            tags$th("WoRMS status"), tags$th("Publish as"), tags$th())),
@@ -3660,7 +3715,6 @@ server <- function(input, output, session) {
     )
   })
   output$draft_table   <- render_archive_table(drafts_df)
-  output$publish_table <- render_archive_table(published_df)
 
   download_selected_handler <- function(get_df, rows_id) downloadHandler(
     filename = function() {
@@ -3680,7 +3734,6 @@ server <- function(input, output, session) {
     }
   )
   output$download_draft_item   <- download_selected_handler(drafts_df, "draft_table_rows_selected")
-  output$download_publish_item <- download_selected_handler(published_df, "publish_table_rows_selected")
 
   # Shared by both tabs: a real downloadButton when logged in, or a locked
   # placeholder (opens login_required_modal()) for a guest.
@@ -3716,20 +3769,205 @@ server <- function(input, output, session) {
   output$publish_tab_body <- renderUI({
     if (!archive_history_enabled()) return(not_configured_card("Publish"))
     card(
-      card_header(bsicons::bs_icon("send-check", class = "section-icon"), "Ready to publish"),
+      card_header(class = "d-flex align-items-center",
+        bsicons::bs_icon("send-check", class = "section-icon"), "Ready to publish",
+        actionButton("refresh_publish", tagList(bsicons::bs_icon("arrow-repeat"), " Refresh"),
+                     class = "btn-outline-secondary btn-sm ms-auto")),
       card_body(
-        p(class = "muted", "Files in the Publish folder, ready to be sent to OBIS. Select one to download it."),
-        DT::DTOutput("publish_table"),
-        div(class = "d-flex gap-2 mt-3",
-            download_or_locked_btn("download_publish_item", "download_publish_item_locked", "Download selected"),
-            actionButton("view_publish_report", tagList(bsicons::bs_icon("file-earmark-bar-graph"), " View report"), class = "btn-outline-primary btn-sm"),
-            actionButton("refresh_publish", tagList(bsicons::bs_icon("arrow-repeat"), " Refresh"), class = "btn-outline-secondary btn-sm"))
+        p(class = "muted", "Archives in the Publish folder, ready for OBIS. Every action is on the archive's own row: download it, view its report, ",
+          "copy the S3 link the OBIS node harvests from, or email the node that it's ready."),
+        uiOutput("publish_list")
       )
     )
   })
 
+  # ---- Publish tab: one row per archive, its buttons on the same row ----
+  # Row buttons send input$publish_action = {action, key}; the S3 key (not a
+  # row number) says which archive, so a refresh can't point at the wrong one.
+  pub_action_js <- function(action, key) sprintf(
+    "Shiny.setInputValue('publish_action', {action: '%s', key: %s, t: Date.now()}, {priority: 'event'})",
+    action, jsonlite::toJSON(key, auto_unbox = TRUE))
+  fmt_s3_time <- function(x) {
+    t <- as.POSIXct(sub("\\.[0-9]+Z?$", "", sub("T", " ", as.character(x))), tz = "UTC")
+    if (is.na(t)) return(as.character(x))
+    paste0(sub("^0", "", format(t, "%d %b %Y, %H:%M", tz = "UTC")), " UTC")
+  }
+  published_row <- function(key) {
+    df <- published_df()
+    if (is.null(df) || !(key %in% df$s3_key)) return(NULL)
+    df[df$s3_key == key, , drop = FALSE][1, ]
+  }
+
+  # One download link per row. They're registered whenever the listing changes.
+  observe({
+    df <- published_df()
+    req(df, nrow(df) > 0)
+    for (i in seq_len(nrow(df))) local({
+      key <- df$s3_key[i]
+      output[[paste0("pub_dl_", i)]] <- downloadHandler(
+        filename = function() basename(key),
+        content = function(file) {
+          req(rv$logged_in)  # the UI only shows this link to logged-in users
+          fetch_archive_from_s3(key, file)
+        })
+    })
+  })
+
+  output$publish_list <- renderUI({
+    df <- published_df()
+    req(!is.null(df))
+    if (nrow(df) == 0) {
+      return(div(class = "pub-empty", bsicons::bs_icon("inbox"),
+                 strong("Nothing published yet."), br(), "Move a draft here from the Draft tab, or publish from Step 7."))
+    }
+    logged_in <- isTRUE(rv$logged_in)
+    publisher <- logged_in && can_publish(rv$logged_in_email)
+    lock <- function(label, icon, cls = "btn-outline-primary") {
+      tags$button(type = "button", class = paste("btn btn-sm", cls), onclick = pub_action_js("locked", ""),
+                  title = "Log in to use this", bsicons::bs_icon("lock-fill"), " ", label)
+    }
+    div(class = "pub-list", lapply(seq_len(nrow(df)), function(i) {
+      row <- df[i, ]
+      url <- s3_public_url(row$s3_key)
+      copy_js <- paste0(
+        "var b=this,u=b.getAttribute('data-url'),ok=function(){var h=b.innerHTML;b.innerHTML='Copied!';",
+        "b.classList.add('btn-success');setTimeout(function(){b.innerHTML=h;b.classList.remove('btn-success');},1800);};",
+        "if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(u).then(ok);}",
+        "else{var t=document.createElement('textarea');t.value=u;document.body.appendChild(t);t.select();",
+        "document.execCommand('copy');document.body.removeChild(t);ok();}")
+      div(class = "pub-item",
+        div(class = "pub-icon", bsicons::bs_icon("file-earmark-zip")),
+        div(class = "pub-main",
+          div(class = "pub-title", row$project, span(class = "pub-badge", "Ready for OBIS")),
+          div(class = "pub-meta",
+              span(bsicons::bs_icon("file-earmark"), row$path),
+              span(bsicons::bs_icon("hdd"), row$size_mb),
+              span(bsicons::bs_icon("clock"), fmt_s3_time(row$last_modified)))
+        ),
+        div(class = "pub-actions",
+          if (logged_in) downloadButton(paste0("pub_dl_", i), "Download", class = "btn-outline-primary btn-sm")
+          else lock("Download", "download"),
+          tags$button(type = "button", class = "btn btn-sm btn-outline-primary", onclick = pub_action_js("report", row$s3_key),
+                      bsicons::bs_icon("file-earmark-bar-graph"), " Report"),
+          if (logged_in) tags$button(type = "button", class = "btn btn-sm btn-outline-primary", `data-url` = url, onclick = copy_js,
+                                     title = "Copy the S3 link the OBIS node harvests from", bsicons::bs_icon("link-45deg"), " Copy link")
+          else lock("Copy link", "clipboard"),
+          if (publisher) tags$button(type = "button", class = "btn btn-sm btn-primary", onclick = pub_action_js("notify", row$s3_key),
+                                     bsicons::bs_icon("envelope-paper"), " Notify OBIS node")
+          else if (logged_in) tags$button(type = "button", class = "btn btn-sm btn-outline-secondary", disabled = NA,
+                                          title = "Publisher role required", bsicons::bs_icon("envelope-paper"), " Notify OBIS node")
+          else lock("Notify OBIS node", "envelope-paper", "btn-primary")
+        )
+      )
+    }))
+  })
+
+  observeEvent(input$publish_action, {
+    a <- input$publish_action
+    if (identical(a$action, "locked")) return(showModal(login_required_modal("use a published archive")))
+    row <- published_row(a$key)
+    if (is.null(row)) {
+      showNotification("That archive is no longer in the Publish folder - press Refresh.", type = "warning")
+      return()
+    }
+    if (identical(a$action, "report")) view_report_for_key(row$s3_key)
+    if (identical(a$action, "notify")) open_notify(row)
+  })
+
+  notify_target <- reactiveVal(NULL)  # the row (archive) the open popup is about
+  notify_report_url <- reactiveVal(NULL)
+  open_notify <- function(row) {
+    req(rv$logged_in, can_publish(rv$logged_in_email))
+    if (!smtp_configured()) {
+      showNotification("Email isn't set up on this server (SMTP_USER / SMTP_PASSWORD in .Renviron).", type = "error", duration = 8)
+      return()
+    }
+    notify_target(row)
+    rep_key <- report_key_for_zip(row$s3_key)
+    notify_report_url(if (isTRUE(tryCatch(.s3_exists(rep_key), error = function(e) FALSE))) s3_public_url(rep_key) else NULL)
+    showModal(modalDialog(
+      title = tagList(bsicons::bs_icon("envelope-paper"), " Notify the OBIS node"),
+      size = "l", easyClose = FALSE,
+      p(class = "muted", "Emails the OBIS node that ", tags$b(row$path), " is ready, with its S3 link so they can harvest it. ",
+        "Replies come back to you (", rv$logged_in_email, ")."),
+      layout_columns(col_widths = c(6, 6),
+        textInput("notify_to", "To (OBIS node email)", value = obis_node_email(), placeholder = "node@example.org", width = "100%"),
+        textInput("notify_sender_name", "Your name", width = "100%")),
+      textInput("notify_title", optional_label("Dataset title", "Shown in the subject line and the email."), width = "100%"),
+      textAreaInput("notify_note", optional_label("Message", "A personal note added to the email, e.g. what changed since the last version."),
+                    rows = 3, width = "100%"),
+      tags$div(class = "small fw-semibold mb-1", "Preview"),
+      uiOutput("notify_preview"),
+      footer = tagList(modalButton("Cancel"),
+                       actionButton("notify_send", tagList(bsicons::bs_icon("send"), " Send email"), class = "btn-primary"))
+    ))
+  }
+  notify_email <- reactive({
+    row <- notify_target()
+    req(row)
+    obis_notify_email(
+      project = row$project, archive_url = s3_public_url(row$s3_key), file_name = row$path, size = row$size_mb,
+      last_modified = sub(" UTC$", "", fmt_s3_time(row$last_modified)),
+      report_url = notify_report_url(), title = input$notify_title, sender_name = input$notify_sender_name,
+      sender_email = rv$logged_in_email, note = input$notify_note)
+  })
+  output$notify_preview <- renderUI({
+    em <- notify_email()
+    tagList(div(class = "small mb-1", strong("Subject: "), em$subject),
+            tags$iframe(srcdoc = em$html, style = "width:100%;height:420px;border:1px solid #dde3ee;border-radius:4px;background:#fff;"))
+  })
+  # "Send email" first asks who to copy in (a second popup), then sends.
+  # The email is frozen here, because the first popup's inputs go away.
+  notify_pending <- reactiveVal(NULL)
+  observeEvent(input$notify_send, {
+    req(rv$logged_in, can_publish(rv$logged_in_email), notify_target())
+    to <- split_emails(input$notify_to)
+    bad <- to[!vapply(to, email_looks_valid, logical(1))]
+    if (length(to) == 0 || length(bad) > 0) {
+      showNotification(if (length(to) == 0) "Enter the OBIS node's email address." else paste0("Not a valid email: ", paste(bad, collapse = ", ")),
+                       type = "error")
+      return()
+    }
+    notify_pending(list(to = to, email = notify_email()))
+    showModal(modalDialog(
+      title = tagList(bsicons::bs_icon("people"), " Copy anyone in on this request?"),
+      easyClose = FALSE,
+      p("The email goes to ", tags$b(paste(to, collapse = ", ")), ". Do you want to CC it to yourself or anyone else?"),
+      checkboxInput("notify_cc_me", paste0("CC me (", rv$logged_in_email, ")"), value = TRUE),
+      textInput("notify_cc_others", optional_label("Also CC", "Separate several addresses with commas."),
+                placeholder = "colleague@uwa.edu.au, manager@uwa.edu.au", width = "100%"),
+      footer = tagList(modalButton("Cancel"),
+                       actionButton("notify_confirm_send", tagList(bsicons::bs_icon("send"), " Send"), class = "btn-primary"))
+    ))
+  })
+  observeEvent(input$notify_confirm_send, {
+    req(rv$logged_in, can_publish(rv$logged_in_email))
+    pend <- notify_pending()
+    req(pend)
+    others <- split_emails(input$notify_cc_others)
+    bad <- others[!vapply(others, email_looks_valid, logical(1))]
+    if (length(bad) > 0) {
+      showNotification(paste0("Not a valid email: ", paste(bad, collapse = ", ")), type = "error")
+      return()
+    }
+    cc <- unique(tolower(c(if (isTRUE(input$notify_cc_me)) rv$logged_in_email, others)))
+    cc <- setdiff(cc, tolower(pend$to))
+    em <- pend$email
+    sent <- withProgress(message = "Sending email...", value = 0.5, tryCatch(
+      send_obis_notify_email(pend$to, em$subject, em$html, reply_to = rv$logged_in_email, cc = cc),
+      error = function(e) e))
+    if (inherits(sent, "error")) {
+      showNotification(paste0("Couldn't send the email: ", conditionMessage(sent)), type = "error", duration = 10)
+      return()
+    }
+    notify_pending(NULL)
+    removeModal()
+    showNotification(paste0("Email sent to ", paste(pend$to, collapse = ", "),
+                            if (length(cc) > 0) paste0(" (CC: ", paste(cc, collapse = ", "), ")"), "."),
+                     type = "message", duration = 8)
+  })
+
   observeEvent(input$download_draft_item_locked,   { showModal(login_required_modal("download a saved archive")) })
-  observeEvent(input$download_publish_item_locked, { showModal(login_required_modal("download a saved archive")) })
   observeEvent(input$move_to_publish_locked,       { showModal(login_required_modal("move a draft to Publish")) })
 
   # "View report": fetch the report that shares the selected zip's name and show it in a popup.
@@ -3740,19 +3978,21 @@ server <- function(input, output, session) {
       showNotification("Select a row in the table first.", type = "warning")
       return()
     }
+    view_report_for_key(df$s3_key[sel])
+  }
+  view_report_for_key <- function(key) {
     dest <- tempfile(fileext = ".png")
     found <- withProgress(message = "Loading report...", value = 0.5,
-                          tryCatch(fetch_report_for_zip(df$s3_key[sel], dest), error = function(e) e))
+                          tryCatch(fetch_report_for_zip(key, dest), error = function(e) e))
     if (inherits(found, "error")) {
       showNotification(paste0("Couldn't load the report: ", conditionMessage(found)), type = "error")
     } else if (!isTRUE(found)) {
       showNotification("No report was saved for this file (archives saved before reports existed don't have one).", type = "warning", duration = 8)
     } else {
-      show_report_modal(dest, sub("\\.zip$", ".png", basename(df$s3_key[sel])))
+      show_report_modal(dest, sub("\\.zip$", ".png", basename(key)))
     }
   }
   observeEvent(input$view_draft_report,   { view_saved_report(drafts_df, "draft_table_rows_selected") })
-  observeEvent(input$view_publish_report, { view_saved_report(published_df, "publish_table_rows_selected") })
 
   observeEvent(input$refresh_drafts,  { history_refresh(isolate(history_refresh()) + 1) })
   observeEvent(input$refresh_publish, { history_refresh(isolate(history_refresh()) + 1) })
