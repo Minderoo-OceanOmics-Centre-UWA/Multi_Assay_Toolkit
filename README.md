@@ -161,6 +161,8 @@ To get the keys: in the AWS console create an S3 bucket, create an IAM user with
 | `ALLOWED_EMAIL_DOMAIN` | **Yes, for your own install** | Only addresses on this domain can sign up. Defaults to `uwa.edu.au` (the original deployment), so **set it to your own organisation's domain**. |
 | `ADMIN_EMAILS` | **Yes, for your own install** | Comma-separated admin addresses. Defaults to the original deployment's admin, so set your own. |
 | `SUPPORT_CONTACT_EMAIL` | No | Shown in "log in required" messages. Set it to your own contact address. |
+| `OBIS_NODE_EMAIL` | No | Default "To" address for **Notify OBIS node** in the Publish tab (comma-separated for several). Left unset, the user types it. |
+| `MAT_ORG_NAME` | No | Organisation named in that email. Defaults to `OceanOmics Centre`. |
 
 Accounts need both the S3 and the SMTP variables. If either is missing, the app stays in local mode. If you run the app locally with the same `.Renviron` as your live server, both use the same bucket: drafts saved while testing are real and have to be deleted by hand.
 

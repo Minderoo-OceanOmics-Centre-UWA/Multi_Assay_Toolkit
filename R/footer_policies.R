@@ -100,6 +100,7 @@ policy_modal <- function(which) {
           tags$li("Your password is never stored - only a salted, one-way hash of it."),
           tags$li("Verification and password-reset codes are emailed to you, stored only as a hash, and expire after 15 minutes."),
           tags$li("After repeated failed sign-ins, we email you a warning."),
+          tags$li("If you use \"Notify OBIS node\" in the Publish tab, the email you send includes your name (if given) and email address, so the node can reply to you."),
           tags$li("If you choose to stay signed in, a random sign-in token is saved in your browser and a one-way hash of it with your account. ",
                   "It expires after 14 days, and is removed when you log out or reset your password.")),
         p("Account details are kept in the team's secure cloud storage and are used only to run the service."),
