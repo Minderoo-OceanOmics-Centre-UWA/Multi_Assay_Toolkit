@@ -11,8 +11,6 @@ output
 FAIRe2OBIS
 scripts
 docs
-CLAUDE.md
 README.md
 .RData
-.claude
 eml_metadata_from_sample.xlsx

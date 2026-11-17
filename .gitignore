@@ -3,7 +3,6 @@ output/
 .Rhistory
 .RData
 .Rproj.user/
-CLAUDE.md
 .Renviron
 templates/eml_metadata_from_sample.xlsx
 

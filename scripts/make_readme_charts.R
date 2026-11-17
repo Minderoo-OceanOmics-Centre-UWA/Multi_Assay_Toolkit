@@ -2,7 +2,7 @@
 #
 # Generates the README's chart images (docs/img/) from the pipeline's real
 # output files (output/event_core, output/occurrence, output/controls) -
-# the same OcOm_2408 run documented throughout the README and CLAUDE.md.
+# the same OcOm_2408 run documented throughout the README.
 #
 # Deliberately reuses R/build_report.R's own chart-drawing functions
 # (.chart_samples, .chart_detections, .chart_resolution, .chart_top_taxa,

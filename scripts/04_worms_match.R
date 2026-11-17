@@ -4,7 +4,7 @@
 # unique scientificName produced by 02_build_occurrence.R against
 # WoRMS, and fills in scientificNameID for all three Occurrence tables.
 # Run this AFTER 02, as its own separate, reviewable step - see
-# CLAUDE.md "Taxonomy - handle as a SEPARATE step" for why this isn't
+# the project notes ("Taxonomy - handle as a SEPARATE step") for why this isn't
 # folded into script 02.
 #
 # Uses the `worrms` R package (wraps the WoRMS REST API

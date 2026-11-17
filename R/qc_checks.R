@@ -127,7 +127,7 @@ run_qc_checks <- function(event, occurrence_tables, dna_tables, emof = NULL) {
   # contain occurrenceID "eventID_ASV_2774" (ASV numbers are local to
   # each assay's own pipeline run, not global), which every check
   # above missed since none of them looked ACROSS assays. See
-  # CLAUDE.md's Identifiers section.
+  # the project notes (Identifiers).
   all_occurrence_ids <- unlist(lapply(occurrence_tables, function(df) df$occurrenceID), use.names = FALSE)
   dup_occurrence_ids <- unique(all_occurrence_ids[duplicated(all_occurrence_ids)])
   results$duplicate_occurrence_ids <- dup_occurrence_ids
