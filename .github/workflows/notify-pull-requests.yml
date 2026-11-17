@@ -1,0 +1,64 @@
+# Emails Anushka (cc Emma) when a pull request needs review: opened, reopened,
+# or a draft marked ready. Uses the app's own Gmail account.
+#
+# Repository secrets needed (Settings > Secrets and variables > Actions):
+#   SMTP_USER, SMTP_PASSWORD   the app's Gmail account + app password (.Renviron)
+#   NOTIFY_TO, NOTIFY_CC       recipient addresses (kept out of this public repo)
+#
+# Safety: pull_request_target runs this repo's own copy of the workflow and
+# script (checkout = the base branch), never the pull request's code, so a pull
+# request from a fork can't change what runs here. Pull request text is passed
+# only through environment variables, never pasted into a shell command.
+
+name: Email when a pull request needs review
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  email:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4   # base branch only - see "Safety" above
+
+      - name: List changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename' > "$RUNNER_TEMP/files.txt"
+
+      - name: Send email
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
+          NOTIFY_CC: ${{ secrets.NOTIFY_CC }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD: ${{ github.event.pull_request.head.label }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          MAIL_BODY_TEXT: ${{ github.event.pull_request.body }}
+          ACTION: ${{ github.event.action }}
+        run: |
+          export MAIL_SUBJECT="MAT: pull request #${PR_NUMBER} needs review - ${PR_TITLE}"
+          export MAIL_HEADLINE="A pull request needs your review"
+          case "$ACTION" in
+            reopened)          export MAIL_INTRO="Pull request #${PR_NUMBER} on the Multi-Assay Toolkit repository has been reopened and needs your review." ;;
+            ready_for_review)  export MAIL_INTRO="Pull request #${PR_NUMBER} on the Multi-Assay Toolkit repository is ready for review." ;;
+            *)                 export MAIL_INTRO="A new pull request (#${PR_NUMBER}) has been opened on the Multi-Assay Toolkit repository and needs your review." ;;
+          esac
+          export MAIL_FACTS="$(printf 'Title: %s\nOpened by: %s\nChanges from: `%s`\nInto: `%s`' "$PR_TITLE" "$PR_AUTHOR" "$PR_HEAD" "$PR_BASE")"
+          export MAIL_FILES="$(cat "$RUNNER_TEMP/files.txt")"
+          export MAIL_LINK_URL="$PR_URL"
+          export MAIL_LINK_LABEL="Review pull request #${PR_NUMBER}"
+          python3 .github/scripts/send_notification.py
