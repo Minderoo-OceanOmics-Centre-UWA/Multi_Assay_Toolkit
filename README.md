@@ -372,3 +372,4 @@ With thanks to:
 - the Minderoo OceanOmics Centre at UWA team, across sample collection, laboratory work and bioinformatics
 
 Built on [Darwin Core](https://dwc.tdwg.org/), the [FAIRe](https://fair-edna.github.io/) eDNA data standard, the [OBIS-ENV-DATA](https://manual.obis.org/dna_data.html) pattern, the [`worrms`](https://docs.ropensci.org/worrms/) client for [WoRMS](https://www.marinespecies.org/), and [`obistools`](https://github.com/iobis/obistools) for OBIS quality checks.
+
