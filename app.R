@@ -46,6 +46,7 @@ source("R/suggest_assay_mapping.R")
 source("R/detect_assay_name.R")
 source("R/detect_reference_db.R")
 source("R/check_dwc_mapping.R")
+source("R/faire_column_suggestions.R")
 source("R/taxon_lookup.R")
 source("R/build_report.R")
 source("R/build_event_core.R")
@@ -2041,8 +2042,14 @@ server <- function(input, output, session) {
         )
         incProgress(0.2)
 
-        list(event_core = ec$event_core, controls = ec$controls, occurrence = occ$occurrence, dna_extension = dna$dna_extension,
-             emof = emof, assay_coverage = ec$assay_coverage)
+        built <- list(event_core = ec$event_core, controls = ec$controls, occurrence = occ$occurrence, dna_extension = dna$dna_extension,
+                      emof = emof, assay_coverage = ec$assay_coverage)
+        # Filled-in FAIRe columns MAT doesn't publish yet, with suggested
+        # term names (R/faire_column_suggestions.R). Never blocks the build.
+        incProgress(0.05, detail = "Looking for other filled-in columns")
+        built$column_scan   <- tryCatch(scan_faire_columns(input_files, built), error = function(e) NULL)
+        built$added_columns <- NULL
+        built
       }, error = function(e) {
         rv$build_error <- conditionMessage(e)
         NULL
@@ -2087,6 +2094,7 @@ server <- function(input, output, session) {
         )
       ),
       render_mapping_card(r),
+      render_faire_columns_card(r),
       div(style = "text-align: right;",
           actionButton("to_step4", tagList("Continue to Taxonomy Review ", bsicons::bs_icon("arrow-right")), class = "btn-primary")
       )
@@ -2137,6 +2145,104 @@ server <- function(input, output, session) {
       )
     )
   }
+
+  # Filled-in FAIRe columns that aren't in the archive yet (see
+  # R/faire_column_suggestions.R). Only ticked columns are ever added.
+  render_faire_columns_card <- function(r) {
+    sc <- r$column_scan
+    added <- r$added_columns
+    if ((is.null(sc) || nrow(sc) == 0) && is.null(added)) return(NULL)
+    sugg <- if (is.null(sc)) sc else sc[!is.na(sc$term), , drop = FALSE]
+    none <- if (is.null(sc)) sc else sc[is.na(sc$term), , drop = FALSE]
+    sheet_label <- function(s) if (s == "sampleMetadata") "sampleMetadata (per sample)" else "experimentRunMetadata (per sample and assay)"
+    how_badge <- function(how) {
+      cls <- switch(how,
+        "Same name" = "bg-success",
+        "Known FAIRe match" = "bg-primary",
+        "Same name, different spelling" = "bg-info text-dark",
+        "bg-warning text-dark")
+      span(class = paste("badge", cls), how)
+    }
+
+    card(
+      card_header(bsicons::bs_icon("plus-square", class = "section-icon"), "Other filled-in FAIRe columns"),
+      card_body(
+        p(class = "muted", "These columns are filled in for the published samples, but MAT doesn't put them in the archive. ",
+          "Where a Darwin Core / GBIF term fits, it is suggested below. ", strong("Nothing is added unless you tick it"),
+          " - check the term's definition and the example value first."),
+        if (!is.null(added) && nrow(added) > 0) {
+          div(class = "alert alert-success",
+              bsicons::bs_icon("check-circle-fill"), " Added: ",
+              lapply(seq_len(nrow(added)), function(i) tagList(tags$code(added$column[i]), " as ", tags$code(added$term[i]),
+                                                              " (", FAIRE_TARGET_LABEL[[added$table[i]]], ")", if (i < nrow(added)) "; ")),
+              div(class = "small mt-1", "Building again starts fresh, without these."))
+        },
+        if (!is.null(sugg) && nrow(sugg) > 0) {
+          tagList(
+            tags$table(class = "table table-sm align-middle",
+              tags$thead(tags$tr(tags$th("Add"), tags$th("FAIRe column"), tags$th("Suggested term"), tags$th("Goes in"),
+                                 tags$th("Match"), tags$th("Example value"), tags$th(class = "text-end", "Filled"))),
+              tags$tbody(lapply(seq_len(nrow(sugg)), function(i) {
+                s <- sugg[i, ]
+                tags$tr(
+                  tags$td(tags$input(type = "checkbox", class = "form-check-input faire-add-box", value = s$column)),
+                  tags$td(tags$code(s$column), div(class = "muted small", sheet_label(s$sheet))),
+                  tags$td(if (!is.na(s$link) && nzchar(s$link)) {
+                            tags$a(href = s$link, title = "Open the official definition", target = "_blank", rel = "noopener noreferrer",
+                                   tags$code(s$term), " ", bsicons::bs_icon("box-arrow-up-right"))
+                          } else tags$code(s$term)),
+                  tags$td(FAIRE_TARGET_LABEL[[s$table]]),
+                  tags$td(how_badge(s$how)),
+                  tags$td(class = "muted", s$example),
+                  tags$td(class = "text-end", format(s$filled, big.mark = ","))
+                )
+              }))
+            ),
+            actionButton("add_faire_cols", tagList(bsicons::bs_icon("plus-lg"), " Add ticked columns to the archive"),
+                         class = "btn-outline-primary",
+                         onclick = "Shiny.setInputValue('faire_add_ticked', Array.from(document.querySelectorAll('.faire-add-box:checked')).map(function(b){return b.value;}), {priority: 'event'})")
+          )
+        },
+        if (!is.null(none) && nrow(none) > 0) {
+          tags$details(class = "mt-3",
+            tags$summary(class = "muted", paste0(nrow(none), " column(s) with no matching term")),
+            p(class = "muted small mt-2", "No Darwin Core or DNA Derived Data term fits these, and they are recorded per sample ",
+              tags$em("and"), " assay, which an eMoF row per sample can't hold, so MAT doesn't offer them."),
+            tags$table(class = "table table-sm",
+              tags$thead(tags$tr(tags$th("FAIRe column"), tags$th("Sheet"), tags$th("Example value"))),
+              tags$tbody(lapply(seq_len(nrow(none)), function(i) tags$tr(
+                tags$td(tags$code(none$column[i])), tags$td(class = "muted", none$sheet[i]), tags$td(class = "muted", none$example[i])))))
+          )
+        }
+      )
+    )
+  }
+
+  observeEvent(input$faire_add_ticked, {
+    r <- rv$build_result
+    req(r, r$column_scan)
+    picks <- r$column_scan[r$column_scan$column %in% input$faire_add_ticked & !is.na(r$column_scan$term), , drop = FALSE]
+    if (nrow(picks) == 0) {
+      showNotification("Tick at least one column first.", type = "warning")
+      return()
+    }
+    updated <- tryCatch(add_faire_columns(r, get_input_files(), picks), error = function(e) {
+      showNotification(paste("Could not add the columns:", conditionMessage(e)), type = "error", duration = NULL)
+      NULL
+    })
+    if (is.null(updated)) return()
+    updated$column_scan   <- r$column_scan[!r$column_scan$column %in% picks$column, , drop = FALSE]
+    updated$added_columns <- rbind(r$added_columns, picks)
+    rv$build_result <- updated
+    # Taxonomy matching / QC were run on the tables before these columns.
+    if (!is.null(rv$worms_result) || !is.null(rv$qc_result)) {
+      rv$worms_result <- NULL
+      rv$qc_result    <- NULL
+      showNotification("Columns added. Run WoRMS matching again in Step 4 - it was run before this change.", type = "warning", duration = 8)
+    } else {
+      showNotification(paste0("Added ", nrow(picks), " column(s)."), type = "message")
+    }
+  })
 
   observeEvent(input$to_step4, { rv$current_step <- 4 })
 
@@ -3545,18 +3651,26 @@ server <- function(input, output, session) {
       # core and how each extension links back to it - no meta.xml yet,
       # since these files are meant to be uploaded individually into an
       # institutional IPT, which builds the real archive itself).
-      write.csv(rv$build_result$event_core, file.path(tmpdir, "Event.csv"), row.names = FALSE, na = "")
+      # Columns with no value in any row are left out of the files (the
+      # user's choice, 2026-11-17) - an empty column tells data users nothing.
+      # eventID always stays: it links every file to the Event core.
+      drop_empty <- function(df) {
+        filled <- vapply(df, function(x) any(!is.na(x) & nzchar(trimws(as.character(x)))), logical(1))
+        df[, filled | names(df) == "eventID", drop = FALSE]
+      }
+      write.csv(drop_empty(rv$build_result$event_core), file.path(tmpdir, "Event.csv"), row.names = FALSE, na = "")
       occ_final <- final_occurrence()
       dna_final <- final_dna()
       for (a in names(occ_final)) {
-        write.csv(occ_final[[a]], file.path(tmpdir, paste0("Occurrence_", a, ".csv")), row.names = FALSE, na = "")
+        write.csv(drop_empty(occ_final[[a]]), file.path(tmpdir, paste0("Occurrence_", a, ".csv")), row.names = FALSE, na = "")
       }
       for (a in names(dna_final)) {
-        write.csv(dna_final[[a]], file.path(tmpdir, paste0("DNADerivedData_", a, ".csv")), row.names = FALSE, na = "")
+        write.csv(drop_empty(dna_final[[a]]), file.path(tmpdir, paste0("DNADerivedData_", a, ".csv")), row.names = FALSE, na = "")
       }
-      # Optional: only when a vessel or voyage was given in Step 1 (see R/build_emof.R).
+      # Optional: only when a vessel or voyage was given in Step 1, or FAIRe
+      # columns were added as measurements in Step 3 (see R/build_emof.R).
       if (!is.null(rv$build_result$emof)) {
-        write.csv(rv$build_result$emof, file.path(tmpdir, "ExtendedMeasurementOrFact.csv"), row.names = FALSE, na = "")
+        write.csv(drop_empty(rv$build_result$emof), file.path(tmpdir, "ExtendedMeasurementOrFact.csv"), row.names = FALSE, na = "")
       }
       if (!is.null(rv$eml_xml)) {
         writeLines(rv$eml_xml, file.path(tmpdir, "eml.xml"))

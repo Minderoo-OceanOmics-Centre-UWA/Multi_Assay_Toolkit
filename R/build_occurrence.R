@@ -138,7 +138,9 @@ build_occurrence <- function(input_files, real_event_ids, associated_sequences_u
         # seq_id (ASV id) is not a DwC term, so the IPT lists it as unmapped - expected and harmless (Sachit confirmed). Kept because build_dna_extension() needs it.
         seq_id,
         basisOfRecord = "MaterialSample",
-        occurrenceStatus = "present",
+        # Darwin Core 2026-05-26 recommends detected / notDetected (was present /
+        # absent) - dwc.tdwg.org/terms/#dwc:occurrenceStatus. Asked for by OBIS AU.
+        occurrenceStatus = "detected",
         scientificName = resolvedScientificName,
         scientificNameID = resolvedScientificNameID,
         taxonRank,
