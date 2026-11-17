@@ -253,7 +253,25 @@ about_page_ui <- function() {
       ),
       p(style = "margin-top: 14px;",
         "Each detection's ", code("occurrenceID"), " is built from the sample, the assay and the ASV (for example ",
-        code("OcOm_2408_1_1_MarVer1_ASV_1079"), "), so it is unique across the whole archive even when ASV numbers repeat between assays.")
+        code("OcOm_2408_1_1_MarVer1_ASV_1079"), "), so it is unique across the whole archive even when ASV numbers repeat between assays."),
+      p("Sample facts that have no Darwin Core column of their own, such as the vessel, the voyage, or the filter and DNA extraction details,
+         can go in an optional ", tags$b("Extended Measurement Or Facts (eMoF)"), " file: one row per fact per sample, linked by ", code("eventID"),
+        ", with standard term and unit links where they exist. Columns that are empty in every row are left out of the files."),
+
+      div(class = "checklist", style = "margin-top: 14px;",
+        tags$b("Keeping up with the standards"),
+        p(style = "margin: 6px 0 8px 0;",
+          "Darwin Core, GBIF and FAIRe change over time (in 2026, for example, Darwin Core changed the recommended ", code("occurrenceStatus"),
+          " values from present / absent to detected / notDetected). MAT checks for this automatically, and a person always reviews a change before the app uses it."),
+        tags$ul(style = "margin: 0;",
+          tags$li(tags$b("Every three months"), " a GitHub job compares MAT's copies of the GBIF definitions, the Darwin Core recommendations
+                  for every term MAT writes, and the FAIRe checklist with the latest published versions."),
+          tags$li("If something changed, it prepares the updated files, opens an issue explaining what changed, and emails the maintainers.
+                  If nothing changed, it does nothing."),
+          tags$li("New pull requests to MAT are emailed to the maintainers once, so contributions are never missed."),
+          tags$li("The app itself only reads its local copies, so it works offline and never changes during a run.")
+        )
+      )
     ),
 
     # ---- How to use -------------------------------------------------------
@@ -269,9 +287,9 @@ about_page_ui <- function() {
       ),
       div(style = "height: 14px;"),
       div(class = "steps-grid",
-        step_card(1, "Upload", "Enter a project ID and add one FAIRe workbook per assay. Assay names are detected from the file names."),
+        step_card(1, "Upload", "Enter a project ID and add one FAIRe workbook per assay. Assay names are detected from the file names. Optionally add the vessel and voyage."),
         step_card(2, "Validate", "Checks every sheet and header, and that all assays describe the same samples with the same metadata."),
-        step_card(3, "Build", "Match each assay to its projectMetadata column(s), then build the Event core and the extensions. Every column is checked against the GBIF term definitions."),
+        step_card(3, "Build", "Match each assay to its projectMetadata column(s), then build the Event core and the extensions. Every column is checked against the GBIF term definitions, and filled-in FAIRe columns not yet published are suggested for you to add."),
         step_card(4, "Taxonomy", "Every name is matched to WoRMS. Review anything ambiguous or not recorded as marine (eDNA genuinely picks up birds, reptiles and land animals too), and exclude lab contamination if needed."),
         step_card(5, "QC checks", "OBIS quality checks: dates, coordinates, links between files, required fields and taxonomy coverage."),
         step_card(6, "Metadata", "Describe the dataset (people, abstract, methods, licence) by form or from the Excel template. MAT writes the eml.xml."),
@@ -328,7 +346,8 @@ about_page_ui <- function() {
           tags$tr(tags$td("Settings for a scripted run, without the app"),
                   tags$td(code("config.R"), ", then the five scripts in ", code("scripts/"), ".")),
           tags$tr(tags$td("Darwin Core term definitions used by the mapping check"),
-                  tags$td("The CSV files in ", code("reference/"), "; refresh them when GBIF publishes new versions.")),
+                  tags$td("The CSV files in ", code("reference/"), ". Kept up to date by a GitHub job every three months (",
+                          code("scripts/update_reference_terms.R"), "); to get its emails in your fork, add the SMTP and NOTIFY secrets described in the README.")),
           tags$tr(tags$td("Name, logo and colours"),
                   tags$td(code("app.R"), " (header and styles) and ", code("www/"), " (logo)."))
         )

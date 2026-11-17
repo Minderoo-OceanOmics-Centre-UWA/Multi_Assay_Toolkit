@@ -16,3 +16,5 @@ www/page_bg.*
 # Home banner background video (stock footage, same reason); the banner falls back to plain white.
 docs/vedios/
 www/hero_video.*
+
+__pycache__/

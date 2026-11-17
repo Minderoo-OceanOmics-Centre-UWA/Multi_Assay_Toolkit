@@ -52,9 +52,9 @@ The app is a seven-step wizard. Nothing is published automatically: a person rev
 
 | Step | What happens |
 |---|---|
-| 1. Upload | Enter a project ID and upload one FAIRe workbook per assay. Choose the file type (curated reference database or NCBI nt); a dataset must use one type only. |
+| 1. Upload | Enter a project ID and upload one FAIRe workbook per assay. Choose the file type (curated reference database or NCBI nt); a dataset must use one type only. Optionally add the vessel, its ICES code and the voyage ID. |
 | 2. Validate | Checks sheets, headers and that every assay describes the same samples. |
-| 3. Build | Match each assay to its `projectMetadata` column(s), then build the Event core and the Occurrence and DNA Derived Data extensions. A mapping check compares every output column with the official GBIF term definitions. |
+| 3. Build | Match each assay to its `projectMetadata` column(s), then build the Event core and the Occurrence and DNA Derived Data extensions. A mapping check compares every output column with the official GBIF term definitions. Filled-in FAIRe columns that aren't published yet are listed with a suggested term, to add if you tick them. |
 | 4. Taxonomy | Match every scientific name against [WoRMS](https://www.marinespecies.org/). Review names that are ambiguous, unmatched or not recorded as marine. |
 | 5. QC Checks | Run OBIS quality checks ([`obistools`](https://github.com/iobis/obistools)) plus ID and coordinate checks. |
 | 6. Metadata | Fill in the dataset metadata (`eml.xml`), by form or from an Excel template. |
@@ -73,7 +73,7 @@ More detail on two steps:
 
   | Situation | Your choices |
   |---|---|
-  | WoRMS lists the name under a newer accepted name (a synonym) | **Use WoRMS's name**, or **keep my name**. Keeping it is fine: it stays linked to its WoRMS record and OBIS shows it under the accepted name. A switch is noted in `identificationRemarks`. |
+  | WoRMS lists the name under a newer accepted name (a synonym) | **Use WoRMS's name** (default), or **keep my name**. Keeping it is fine: it stays linked to its WoRMS record and OBIS shows it under the accepted name. A switch is noted in `identificationRemarks`. |
   | WoRMS can't find the name | **Use WoRMS's suggestion** (typo-tolerant match), **keep my name, not yet in WoRMS** (default; [OBIS's guidance](https://manual.obis.org/dna_data.html): `scientificNameID` left empty, NCBI ID in `taxonConceptID`), **try another name**, or **record as unknown** (*Biota incertae sedis*, for doubtful names). |
 
   Each choice is also written as a sentence into the `eml.xml` methods.
@@ -222,13 +222,26 @@ One `.xlsx` workbook per assay, each with (at minimum) these sheets: `projectMet
 ## Output
 
 ```
-Event.csv                    <- Darwin Core Event core, one row per sample
-Occurrence_<assay>.csv       <- one Occurrence extension per assay
-DNADerivedData_<assay>.csv   <- one DNA Derived Data extension per assay
-eml.xml                      <- dataset metadata
+Event.csv                       <- Darwin Core Event core, one row per sample
+Occurrence_<assay>.csv          <- one Occurrence extension per assay
+DNADerivedData_<assay>.csv      <- one DNA Derived Data extension per assay
+ExtendedMeasurementOrFact.csv   <- optional: vessel, voyage and sample-processing details, per sample
+eml.xml                         <- dataset metadata
 ```
 
 Negative and positive control samples are kept out of the archive. They are lab and field QC, not biodiversity records, and are written to a separate reference file.
+
+Columns that are empty in every row are left out of the files, so each file only carries information that is actually there.
+
+The eMoF file (`ExtendedMeasurementOrFact.csv`) is written when you give a vessel or voyage in Step 1, or tick sample details to add in Step 3. Each fact is one row per sample, linked by `eventID`:
+
+| Measurement | From | Example |
+|---|---|---|
+| Sampling platform name | Step 1 vessel + [ICES platform code](https://vocab.nerc.ac.uk/search_nvs/C17/) | RV Investigator, `…/C17/current/096U/` |
+| Voyage | Step 1 voyage ID | IN2024_V04 |
+| Filter, storage and DNA extraction details | FAIRe `sampleMetadata` columns ticked in Step 3 | Filter diameter 47 mm; DNA extraction kit |
+
+Where the FAIRe checklist links a column to a standard term (often [MIxS](https://w3id.org/mixs/)), that link goes in `measurementTypeID`; units use [NERC P06](https://vocab.nerc.ac.uk/collection/P06/current/) codes.
 
 ### PCR value conventions
 
@@ -248,9 +261,49 @@ The tool produces the archive files. You publish them through any IPT:
 1. Create a new resource and upload `Event.csv` as the core (Core Type: `Event`, ID field: `eventID`).
 2. Add each `Occurrence_<assay>.csv` as a source file, set as an `Occurrence` extension, and map its `eventID` column as the core-linking ID.
 3. Add each `DNADerivedData_<assay>.csv` as a source file, set as a `DNA derived data` extension, and map its `eventID` column (not `occurrenceID`) as the core-linking ID. A Darwin Core Archive has no "extension of an extension", so every extension links back to the core's own ID.
-4. Map the remaining fields. Most map automatically, because the columns are already named as Darwin Core terms. `seq_id` (the ASV ID) is not a Darwin Core term and stays unmapped; this is expected.
-5. Add or check the dataset metadata. The IPT can fill geographic, temporal and taxonomic coverage from the data ("Infer automatically").
-6. Publish to a test IPT first.
+4. If the archive has `ExtendedMeasurementOrFact.csv`, add it as an `Extended Measurement Or Facts` extension, also linked by `eventID`.
+5. Map the remaining fields. Most map automatically, because the columns are already named as Darwin Core terms. `seq_id` (the ASV ID) is not a Darwin Core term and stays unmapped; this is expected.
+6. Check the dataset metadata. MAT's `eml.xml` already includes geographic, temporal and taxonomic coverage, worked out from the data.
+7. Publish to a test IPT first.
+
+## Keeping up with the standards (automation)
+
+Darwin Core, GBIF and FAIRe all change over time. For example, Darwin Core's May 2026 release changed the recommended `occurrenceStatus` values from `present`/`absent` to `detected`/`notDetected`. MAT checks for changes like this automatically, using [GitHub Actions](https://docs.github.com/actions) in this repository. **Nothing is ever changed without a person reviewing it first.**
+
+### Quarterly reference check
+
+`.github/workflows/update-reference-terms.yml` runs on 1 January, April, July and October. You can also run it by hand: **Actions → Check Darwin Core / GBIF references → Run workflow**.
+
+1. `scripts/update_reference_terms.R` downloads the latest versions of:
+   - the GBIF definitions MAT checks against (Event, Occurrence, DNA Derived Data, Extended Measurement Or Facts), from the [GBIF registry](https://rs.gbif.org/extensions.json), including the allowed values of controlled terms such as `basisOfRecord`;
+   - the current Darwin Core recommendation for every term MAT writes, from [Darwin Core's term history](https://github.com/tdwg/dwc/blob/master/vocabulary/term_versions.csv);
+   - the [FAIRe checklist](https://github.com/FAIR-eDNA/FAIRe_checklist) (term definitions, units and standard term links).
+2. It compares them with the copies in `reference/`. If nothing changed, it stops there.
+3. If something changed, it puts the updated files on the branch `auto/reference-terms`, opens a GitHub issue that lists what changed, and emails the maintainers. The issue covers:
+   - new or removed terms;
+   - changed data types;
+   - new Darwin Core recommendations;
+   - any value MAT writes that isn't in GBIF's vocabulary.
+4. A maintainer reviews the changes, opens a pull request from the issue's link, and merges it. The live app only changes after that pull request is merged and deployed.
+
+The app's own checks read only the local copies in `reference/`, so it works offline and never changes in the middle of a run.
+
+### Pull request emails
+
+`.github/workflows/notify-pull-requests.yml` checks every hour for open pull requests and emails the maintainers **once** about each new one. The email includes the title, author, changed files and a link. Emailed pull requests get the label `review-email-sent`, so they are never emailed twice, and drafts wait until they are marked ready. The job only reads the pull request list and never runs a pull request's code.
+
+### Setting it up in your own copy
+
+The emails need four repository secrets (**Settings → Secrets and variables → Actions**). Without them, the checks still run, but no email is sent.
+
+| Secret | Value |
+|---|---|
+| `SMTP_USER` | the sending email account (the same one as in `.Renviron`) |
+| `SMTP_PASSWORD` | its app password |
+| `NOTIFY_TO` | who receives the emails (comma-separated) |
+| `NOTIFY_CC` | optional CC addresses |
+
+`SMTP_HOST` and `SMTP_PORT` are optional and default to Gmail (`smtp.gmail.com`, `587`). The recipients are secrets, so no staff addresses appear in the public code.
 
 ## Using the R scripts instead of the app
 
