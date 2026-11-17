@@ -9,11 +9,16 @@
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 AWS_DEFAULT_REGION=
-# Your bucket's name. Required for your own install: if unset, the app falls
-# back to the original deployment's bucket, which your keys can't access.
+# Your own bucket's name. Required: if unset, storage and accounts stay off and
+# MAT runs in local mode (build and download only).
 FAIRE2OBIS_S3_BUCKET=
 # Optional parent folder for Draft/, Publish/ and Report/ (default "biodiversity-public").
 # FAIRE2OBIS_S3_PREFIX=
+# Folder ON THE SERVER'S DISK for unfinished "In progress" sessions (not S3, so
+# unpublished data stays private). Must be writable by the app (the "shiny" user
+# under Shiny Server) and outside the app folder. If unset, a per-user folder on
+# the machine running the app is used.
+# FAIRE2OBIS_PROGRESS_DIR=/srv/mat-data/in-progress
 
 # --- Who can sign up (see R/user_auth.R) ------------------------------------
 # Accounts give access to your team's saved drafts and published archives,

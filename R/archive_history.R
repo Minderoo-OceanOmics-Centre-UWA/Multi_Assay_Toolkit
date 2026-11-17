@@ -22,17 +22,17 @@
 # Credentials and bucket name come from environment variables only,
 # never hardcoded:
 #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
-#   FAIRE2OBIS_S3_BUCKET  - bucket (defaults to the project's bucket)
+#   FAIRE2OBIS_S3_BUCKET  - bucket (required - no default, so a copy of MAT
+#                           never points at another team's bucket)
 #   FAIRE2OBIS_S3_PREFIX  - parent folder holding Draft/ and Publish/
 #                           (default "biodiversity-public")
 #
 # NOTE: Draft/ sits under biodiversity-public/, so whether drafts are
 # publicly readable depends on the bucket policy for that prefix.
 
-s3_bucket_name <- function() {
-  v <- Sys.getenv("FAIRE2OBIS_S3_BUCKET")
-  if (nzchar(v)) v else "minderoo-oceanomics"
-}
+# No default bucket: without FAIRE2OBIS_S3_BUCKET, storage (Draft/Publish,
+# accounts) is off and the app runs in local mode - build and download only.
+s3_bucket_name <- function() trimws(Sys.getenv("FAIRE2OBIS_S3_BUCKET"))
 s3_public_prefix <- function() {
   v <- Sys.getenv("FAIRE2OBIS_S3_PREFIX")
   if (nzchar(v)) v else "biodiversity-public"

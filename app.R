@@ -47,6 +47,7 @@ source("R/detect_assay_name.R")
 source("R/detect_reference_db.R")
 source("R/check_dwc_mapping.R")
 source("R/faire_column_suggestions.R")
+source("R/in_progress.R")
 source("R/taxon_lookup.R")
 source("R/build_report.R")
 source("R/build_event_core.R")
@@ -545,11 +546,11 @@ app_css <- "
 # row added via insertUI - each gets a stable id so it (and only it)
 # can be removed later without touching its siblings.
 # ---------------------------------------------------------------------
-assay_row_ui <- function(i) {
+assay_row_ui <- function(i, name = "") {
   div(id = paste0("assay_row_", i), class = "assay-row",
       fluidRow(
         column(6, fileInput(paste0("assay_file_", i), "FAIRe .xlsx file", accept = ".xlsx")),
-        column(5, textInput(paste0("assay_name_", i), "Assay name",
+        column(5, textInput(paste0("assay_name_", i), "Assay name", value = name,
                              placeholder = "Auto-detected after upload - edit if you'd rather use a different name")),
         column(1, style = "padding-top: 32px;",
                actionButton(paste0("remove_assay_", i), bsicons::bs_icon("x-lg"), class = "btn-sm btn-outline-danger"))
@@ -699,6 +700,13 @@ ui <- page_fluid(
 
       // Home/About buttons switch tabs; start the new tab at the top.
       Shiny.addCustomMessageHandler('scroll_top', function(msg) { window.scrollTo(0, 0); });
+      // Resuming saved progress: once a step's form has been drawn, tell the
+      // server so it can fill in the saved values (see apply_pending in app.R).
+      Shiny.addCustomMessageHandler('mat_apply_pending', function(step) {
+        setTimeout(function() {
+          Shiny.setInputValue('mat_apply_pending', {step: String(step), t: Date.now()}, {priority: 'event'});
+        }, 150);
+      });
 
       // Step 2: grey out Continue (and show the hint) while an answer box has
       // unchecked text. Retries briefly because the message can arrive in the
@@ -734,6 +742,9 @@ ui <- page_fluid(
             span(style = "font-size:0.78rem; color:#d6e6f5; opacity:0.9;", textOutput("logged_in_as", inline = TRUE)),
             actionButton("logout_btn", tagList(bsicons::bs_icon("box-arrow-right"), " Log out"),
                          class = "btn btn-outline-light btn-sm restart-btn"),
+            actionButton("save_progress_btn", tagList(bsicons::bs_icon("cloud-arrow-up"), " Save progress"),
+                         class = "btn btn-outline-light btn-sm restart-btn",
+                         title = "Save this unfinished project so you (or a teammate) can resume it later from the Draft tab"),
             actionButton("restart_app", tagList(bsicons::bs_icon("arrow-counterclockwise"), " Restart"),
                          class = "btn btn-outline-light btn-sm restart-btn")
         )
@@ -797,6 +808,7 @@ ui <- page_fluid(
               card_body(
                 textInput("project_id", "Project ID", value = "", placeholder = "e.g. OcOm_2408"),
                 p(class = "muted", "Names saved drafts, the published archive and the report (e.g. OcOm_2408 -> OcOm_2408_MAT_DwCA.zip)."),
+                uiOutput("project_status_ui"),
                 div(class = "optional-fields",
                   textInput("georeference_sources", width = "100%",
                     optional_label("GPS or positioning system",
@@ -966,7 +978,14 @@ server <- function(input, output, session) {
     allow_uneven    = FALSE,         # user confirmed some samples weren't analysed with every assay (Step 2)
     excluded_taxa   = character(),  # matched names the user excluded from the archive (likely contamination), this session
     qc_result      = NULL,  # run_qc_checks() output
-    eml_xml         = NULL   # build_eml_xml() output (Step 6)
+    eml_xml         = NULL,  # build_eml_xml() output (Step 6)
+    # "In progress" (R/in_progress.R) - an unfinished session saved part-way
+    restored_files      = NULL,   # assay -> FAIRe path from a resumed session (used until new files are uploaded)
+    restored_file_names = NULL,   # assay -> original file name of those files
+    pending_inputs      = list(), # form values to put back when Step 3 / Step 6 are next shown ("3", "6")
+    resumed_project     = NULL,   # safe project id this session was resumed from (or last saved as)
+    progress_prompted   = NULL,   # project id the "saved progress found" popup was last shown for
+    project_status      = NULL    # project_status() for the Project ID typed in Step 1
   )
 
   # =====================================================================
@@ -1546,7 +1565,15 @@ server <- function(input, output, session) {
     rv$ap_ids
   }
 
+  # TRUE once any file has been uploaded in this session's Step 1 rows. A
+  # resumed session's files are used until then; new uploads replace them all.
+  any_uploads <- reactive({
+    any(vapply(rv$assay_ids, function(i) !is.null(input[[paste0("assay_file_", i)]]), logical(1)))
+  })
+  using_restored_files <- reactive(!is.null(rv$restored_files) && !any_uploads())
+
   get_input_files <- reactive({
+    if (using_restored_files()) return(rv$restored_files)
     files <- list()
     for (i in rv$assay_ids) {
       name_val <- input[[paste0("assay_name_", i)]]
@@ -1562,6 +1589,7 @@ server <- function(input, output, session) {
   # first uploaded FAIRe file (all assays share the same samples).
   sample_split <- reactive({
     path <- NULL
+    if (using_restored_files()) path <- rv$restored_files[[1]]
     for (i in rv$assay_ids) {
       file_val <- input[[paste0("assay_file_", i)]]
       if (!is.null(file_val)) { path <- file_val$datapath; break }
@@ -1574,6 +1602,9 @@ server <- function(input, output, session) {
   # Do all uploaded files list the same samples? (Step 2 blocks if not.)
   sample_match <- reactive({
     paths <- list()
+    if (using_restored_files()) {
+      paths <- setNames(rv$restored_files, unlist(rv$restored_file_names[names(rv$restored_files)]) %||% names(rv$restored_files))
+    }
     for (i in rv$assay_ids) {
       file_val <- input[[paste0("assay_file_", i)]]
       if (!is.null(file_val)) paths[[file_val$name]] <- file_val$datapath
@@ -1676,6 +1707,7 @@ server <- function(input, output, session) {
   outputOptions(output, "sample_split_ui", suspendWhenHidden = FALSE)
 
   get_input_filenames <- reactive({
+    if (using_restored_files()) return(rv$restored_file_names %||% as.list(setNames(basename(unlist(rv$restored_files)), names(rv$restored_files))))
     names_list <- list()
     for (i in rv$assay_ids) {
       name_val <- input[[paste0("assay_name_", i)]]
@@ -1688,6 +1720,16 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$to_step2, {
+    # One unfinished session per project: if this Project ID has saved progress
+    # that this session didn't come from, resume it or delete it first.
+    if (progress_enabled()) {
+      pid <- trimws(input$project_id %||% "")
+      meta <- if (nzchar(pid)) tryCatch(progress_meta(pid), error = function(e) NULL) else NULL
+      if (!is.null(meta) && !identical(rv$resumed_project, safe_project_id(pid))) {
+        show_progress_found_modal(meta)
+        return()
+      }
+    }
     input_files <- get_input_files()
 
     if (length(input_files) == 0) {
@@ -1952,6 +1994,7 @@ server <- function(input, output, session) {
   }
 
   output$step3_body <- renderUI({
+    apply_pending_after_render("3")
     input_files <- get_input_files()
     if (length(input_files) == 0) return(p("Go back to Step 1 and upload files first."))
 
@@ -3198,6 +3241,8 @@ server <- function(input, output, session) {
   # forcing re-entry.
   # =====================================================================
   output$step6_body <- renderUI({
+    step6_rendered(TRUE)
+    apply_pending_after_render("6")
     tagList(
       card(
         card_header(bsicons::bs_icon("file-earmark-arrow-up", class = "section-icon"), "Fill from Excel (optional)"),
@@ -3720,6 +3765,11 @@ server <- function(input, output, session) {
       showNotification(paste0(label, " failed: ", conditionMessage(res)), type = "error", duration = NULL)
       return(NULL)
     }
+    # The project is finished now, so its "In progress" session isn't needed.
+    if (isTRUE(tryCatch(delete_progress(trimws(input$project_id)), error = function(e) FALSE))) {
+      showNotification("Its saved progress (In progress) was removed, as the project is now saved.", type = "message", duration = 6)
+    }
+    rv$resumed_project <- NULL
     history_refresh(isolate(history_refresh()) + 1)
     res
   }
@@ -3858,6 +3908,16 @@ server <- function(input, output, session) {
 
   output$draft_tab_body <- renderUI({
     if (!archive_history_enabled()) return(not_configured_card("Draft"))
+    tagList(
+    card(
+      card_header(bsicons::bs_icon("hourglass-split", class = "section-icon"), "In progress"),
+      card_body(
+        p(class = "muted", "Unfinished projects saved part-way with ", tags$b("Save progress"),
+          ". Anyone signed in can resume one where it stopped, or delete it to start the project again. ",
+          "A project's saved progress is removed automatically once it is saved as a draft or published."),
+        uiOutput("progress_list_ui")
+      )
+    ),
     card(
       card_header(bsicons::bs_icon("pencil-square", class = "section-icon"), "Draft projects"),
       card_body(
@@ -3877,6 +3937,7 @@ server <- function(input, output, session) {
             },
             actionButton("refresh_drafts", tagList(bsicons::bs_icon("arrow-repeat"), " Refresh"), class = "btn-outline-secondary btn-sm"))
       )
+    )
     )
   })
 
@@ -4186,11 +4247,21 @@ server <- function(input, output, session) {
 
   observeEvent(input$confirm_restart, {
     removeModal()
+    reset_wizard()
+    showNotification("Restarted.", type = "message", duration = 2)
+  })
 
+  # Clears every step back to a blank Step 1. `assay_names` = rows to create
+  # (pre-filled names, used when resuming); default one empty row.
+  reset_wizard <- function(assay_names = "", keep_project = FALSE) {
     for (id in rv$assay_ids) removeUI(selector = paste0("#assay_row_", id))
 
-    updateTextInput(session, "project_id", value = "")
+    if (!keep_project) updateTextInput(session, "project_id", value = "")
     updateRadioButtons(session, "reference_db", selected = "curated")
+    rv$restored_files      <- NULL
+    rv$restored_file_names <- NULL
+    rv$pending_inputs      <- list()
+    rv$resumed_project     <- NULL
 
     rv$validation   <- NULL
     rv$allow_uneven <- FALSE
@@ -4215,15 +4286,303 @@ server <- function(input, output, session) {
     rv$qc_result    <- NULL
     rv$eml_xml      <- NULL
 
-    new_id <- rv$next_assay_id
-    insertUI(selector = "#assay_rows_container", where = "beforeEnd", ui = assay_row_ui(new_id))
-    setup_remove_handler(new_id)
-    setup_assay_name_autodetect(new_id)
-    rv$assay_ids <- c(new_id)
-    rv$next_assay_id <- new_id + 1
+    ids <- integer()
+    for (nm in assay_names) {
+      new_id <- rv$next_assay_id
+      insertUI(selector = "#assay_rows_container", where = "beforeEnd", ui = assay_row_ui(new_id, nm))
+      setup_remove_handler(new_id)
+      setup_assay_name_autodetect(new_id)
+      ids <- c(ids, new_id)
+      rv$next_assay_id <- new_id + 1
+    }
+    rv$assay_ids <- ids
 
     rv$current_step <- 1
-    showNotification("Restarted.", type = "message", duration = 2)
+  }
+
+  # =====================================================================
+  # "In progress" - save an unfinished project and resume it later
+  # (storage in R/in_progress.R). Anyone signed in can resume or delete.
+  # One per project: Step 1 won't continue while another session for the
+  # same Project ID is saved, until it is resumed or deleted.
+  # =====================================================================
+  # Saving needs a signed-in user (accounts) and a writable folder on the server.
+  progress_enabled <- function() isTRUE(rv$logged_in) && progress_storage_ok()
+
+  STEP1_INPUTS <- c("project_id", "reference_db", "georeference_sources", "associated_sequences_uri",
+                    "vessel_name", "vessel_code_uri", "voyage_id")
+  RV_SAVED <- c("validation", "validated_answers", "answers", "build_result", "worms_result", "taxonomy_rechecks",
+                "name_corrections", "use_accepted_names", "auto_id_off", "unknown_names", "keep_names",
+                "manual_aphia_overrides", "allow_uneven", "excluded_taxa", "qc_result", "eml_xml")
+
+  # Step 6 is drawn once, the first time it is shown (a plain flag, so it
+  # doesn't make anything re-render).
+  step6_rendered <- local({ v <- FALSE; function(x) { if (!missing(x)) v <<- x; v } })
+
+  # Form values for a step are put back after that step's screen is drawn:
+  # once this update has gone to the browser, it is asked to signal back
+  # ("mat_apply_pending", by which time it has created the inputs), and the
+  # values are filled in then.
+  apply_pending_after_render <- function(step) {
+    if (is.null(isolate(rv$pending_inputs[[step]]))) return(invisible())
+    session$onFlushed(function() session$sendCustomMessage("mat_apply_pending", step), once = TRUE)
+  }
+  observeEvent(input$mat_apply_pending, apply_pending(as.character(input$mat_apply_pending$step)))
+  apply_pending <- function(step) {
+    p <- isolate(rv$pending_inputs[[step]])
+    if (is.null(p)) return(invisible())
+    vals <- p$values %||% list()
+    if (step == "3") {
+      for (id in names(vals)) updateCheckboxGroupInput(session, id, selected = vals[[id]])
+    } else if (step == "6") {
+      # Re-create the same number of person rows, then map old row ids to new.
+      remap <- list()
+      for (kind in c("creator", "personnel", "ap")) {
+        old <- p[[paste0(kind, "_ids")]] %||% integer()
+        new <- switch(kind, creator = set_creator_rows(length(old)), personnel = set_personnel_rows(length(old)),
+                      ap = set_ap_rows(length(old)))
+        if (length(old)) remap[[kind]] <- setNames(new[seq_along(old)], old)
+      }
+      types <- setNames(vapply(EML_FIELD_DEFS, function(f) f$type, ""), paste0("eml_", vapply(EML_FIELD_DEFS, function(f) f$key, "")))
+      for (id in names(vals)) {
+        target <- id
+        m <- regmatches(id, regexec("^eml_(creator|personnel|ap)_(.+)_([0-9]+)$", id))[[1]]
+        if (length(m)) {
+          new_id <- remap[[m[2]]][[m[4]]]
+          if (is.null(new_id)) next
+          target <- paste0("eml_", m[2], "_", m[3], "_", new_id)
+        }
+        v <- vals[[id]]
+        type <- if (target %in% names(types)) types[[target]] else if (grepl("^eml_ap_role_", target)) "select" else "text"
+        switch(type,
+          textarea = updateTextAreaInput(session, target, value = v),
+          date     = updateDateInput(session, target, value = tryCatch(as.Date(v), error = function(e) NULL)),
+          logical  = updateCheckboxInput(session, target, value = isTRUE(v)),
+          select   = updateSelectInput(session, target, selected = v),
+          updateTextInput(session, target, value = v))
+      }
+    }
+    rv$pending_inputs[[step]] <- NULL
+    invisible()
+  }
+
+  # Everything needed to continue later: app state + what was typed in the form.
+  collect_progress_state <- function() {
+    ids <- isolate(names(input))
+    get <- function(id) isolate(input[[id]])
+    step3 <- isolate(rv$pending_inputs[["3"]]) %||%
+      list(values = setNames(lapply(grep("^map_", ids, value = TRUE), get), grep("^map_", ids, value = TRUE)))
+    step6 <- isolate(rv$pending_inputs[["6"]])
+    if (is.null(step6) && step6_rendered()) {
+      keep_row <- function(id) {
+        m <- regmatches(id, regexec("^eml_(creator|personnel|ap)_.+_([0-9]+)$", id))[[1]]
+        if (!length(m)) return(TRUE)
+        as.integer(m[3]) %in% isolate(switch(m[2], creator = rv$creator_ids, personnel = rv$personnel_ids, ap = rv$ap_ids))
+      }
+      eml_ids <- Filter(keep_row, setdiff(grep("^eml_", ids, value = TRUE), "eml_upload"))
+      step6 <- list(values = setNames(lapply(eml_ids, function(id) { v <- get(id); if (inherits(v, "Date")) format(v) else v }), eml_ids),
+                    creator_ids = isolate(rv$creator_ids), personnel_ids = isolate(rv$personnel_ids), ap_ids = isolate(rv$ap_ids))
+    }
+    list(
+      version    = 1,
+      step       = isolate(rv$current_step),
+      rv         = setNames(lapply(RV_SAVED, function(k) isolate(rv[[k]])), RV_SAVED),
+      step1      = setNames(lapply(STEP1_INPUTS, get), STEP1_INPUTS),
+      file_names = isolate(get_input_filenames()),
+      step3      = step3,
+      step6      = step6
+    )
+  }
+
+  do_save_progress <- function() {
+    pid <- trimws(isolate(input$project_id) %||% "")
+    files <- isolate(get_input_files())
+    res <- withProgress(message = "Saving progress...", value = 0.4, tryCatch({
+      state <- collect_progress_state()
+      save_progress(pid, state, files, list(
+        project = safe_project_id(pid), saved_by = isolate(rv$logged_in_email) %||% "",
+        step = state$step, step_name = STEPS[[state$step]] %||% "", assays = names(files)))
+    }, error = function(e) e))
+    if (inherits(res, "error")) {
+      showNotification(paste("Saving progress failed:", conditionMessage(res)), type = "error", duration = NULL)
+      return()
+    }
+    rv$resumed_project <- safe_project_id(pid)
+    history_refresh(isolate(history_refresh()) + 1)
+    showModal(success_modal("Progress saved",
+      tagList("Saved ", tags$b(safe_project_id(pid)), " at Step ", res$step, " (", res$step_name, "). ",
+              "Resume it any time from the ", tags$b("Draft"), " tab, under ", tags$b("In progress"), "."),
+      "Draft", "View in Draft tab"))
+  }
+
+  observeEvent(input$save_progress_btn, {
+    if (!progress_enabled()) {
+      showModal(login_required_modal("save your progress"))
+      return()
+    }
+    pid <- trimws(input$project_id %||% "")
+    if (!nzchar(pid)) {
+      showNotification("Enter a Project ID in Step 1 first - it names the saved progress.", type = "error")
+      return()
+    }
+    if (length(get_input_files()) == 0) {
+      showNotification("Upload the FAIRe files (with assay names) first - there's nothing to save yet.", type = "warning")
+      return()
+    }
+    existing <- tryCatch(progress_meta(pid), error = function(e) NULL)
+    if (!is.null(existing) && !identical(rv$resumed_project, safe_project_id(pid))) {
+      showModal(modalDialog(
+        title = "Replace saved progress?",
+        p(tags$b(safe_project_id(pid)), " already has saved progress from ", existing$saved_by, " (",
+          format_progress_time(existing$saved_at), ", Step ", existing$step, "). Saving now replaces it."),
+        footer = tagList(modalButton("Cancel"), actionButton("confirm_save_progress", "Replace it", class = "btn-danger")),
+        easyClose = TRUE))
+      return()
+    }
+    do_save_progress()
+  })
+  observeEvent(input$confirm_save_progress, { removeModal(); do_save_progress() })
+
+  format_progress_time <- function(iso) {
+    t <- tryCatch(as.POSIXct(iso, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"), error = function(e) NA)
+    if (is.na(t)) return(iso %||% "")
+    format(t, "%d %b %Y %H:%M", tz = Sys.timezone() %||% "UTC")
+  }
+
+  show_progress_found_modal <- function(meta) {
+    showModal(modalDialog(
+      title = tagList(bsicons::bs_icon("hourglass-split"), " Saved progress found for ", meta$project),
+      p("This project was saved part-way by ", tags$b(meta$saved_by), " on ", format_progress_time(meta$saved_at),
+        ", at ", tags$b(paste0("Step ", meta$step, " (", meta$step_name, ")")), "."),
+      if (length(meta$assays)) p(class = "muted", "Assays: ", paste(meta$assays, collapse = ", ")),
+      p("Each project can have one unfinished session. Resume it to continue where it stopped, ",
+        "or delete it to start this project again from the beginning."),
+      footer = tagList(
+        modalButton("Not now"),
+        actionButton("progress_modal_delete", tagList(bsicons::bs_icon("trash"), " Delete and start again"), class = "btn-outline-danger"),
+        actionButton("progress_modal_resume", tagList(bsicons::bs_icon("play-fill"), " Resume"), class = "btn-primary")),
+      easyClose = TRUE))
+    progress_modal_project(meta$project)
+  }
+  progress_modal_project <- reactiveVal(NULL)
+  observeEvent(input$progress_modal_resume, { removeModal(); resume_progress(progress_modal_project()) })
+  observeEvent(input$progress_modal_delete, { removeModal(); confirm_delete_progress(progress_modal_project()) })
+
+  confirm_delete_progress <- function(project) {
+    showModal(modalDialog(
+      title = "Delete saved progress?",
+      p("This permanently deletes the saved progress for ", tags$b(project),
+        " (its uploaded files and every choice made so far). Finished drafts and published archives are not affected."),
+      footer = tagList(modalButton("Cancel"), actionButton("confirm_delete_progress_btn", "Delete", class = "btn-danger")),
+      easyClose = TRUE))
+    progress_modal_project(project)
+  }
+  observeEvent(input$confirm_delete_progress_btn, {
+    removeModal()
+    project <- progress_modal_project()
+    req(project)
+    ok <- tryCatch({ delete_progress(project); TRUE }, error = function(e) { showNotification(paste("Delete failed:", conditionMessage(e)), type = "error"); FALSE })
+    if (!ok) return()
+    if (identical(rv$resumed_project, project)) rv$resumed_project <- NULL
+    rv$progress_prompted <- project   # don't ask again for this ID straight away
+    history_refresh(isolate(history_refresh()) + 1)
+    project_check_now(project_check_now() + 1)
+    showNotification(paste0("Deleted the saved progress for ", project, ". You can start this project again."), type = "message", duration = 6)
+  })
+
+  resume_progress <- function(project) {
+    req(project)
+    if (!progress_enabled()) { showModal(login_required_modal("resume saved progress")); return() }
+    loaded <- withProgress(message = "Loading saved progress...", value = 0.4,
+      tryCatch(load_progress(project, file.path(tempdir(), paste0("mat_resume_", session$token, "_", as.integer(Sys.time())))),
+               error = function(e) e))
+    if (inherits(loaded, "error")) {
+      showNotification(paste("Couldn't load the saved progress:", conditionMessage(loaded)), type = "error", duration = NULL)
+      return()
+    }
+    st <- loaded$state
+    reset_wizard(assay_names = names(loaded$files), keep_project = TRUE)
+    s1 <- st$step1
+    updateTextInput(session, "project_id", value = s1$project_id %||% project)
+    if (!is.null(s1$reference_db)) updateRadioButtons(session, "reference_db", selected = s1$reference_db)
+    for (id in setdiff(STEP1_INPUTS, c("project_id", "reference_db"))) updateTextInput(session, id, value = s1[[id]] %||% "")
+    for (k in names(st$rv)) rv[[k]] <- st$rv[[k]]
+    rv$restored_files      <- loaded$files
+    rv$restored_file_names <- st$file_names
+    rv$pending_inputs      <- Filter(Negate(is.null), list(`3` = st$step3, `6` = st$step6))
+    rv$resumed_project     <- safe_project_id(project)
+    rv$progress_prompted   <- safe_project_id(project)
+    rv$current_step        <- st$step %||% 1
+    if (step6_rendered()) apply_pending_after_render("6")   # Step 6 was already drawn in this session
+    go_to_tab("Generate")
+    showNotification(paste0("Resumed ", project, " at Step ", rv$current_step, "."), type = "message", duration = 5)
+  }
+
+  # Step 1: as a Project ID is typed, say what already exists for it, and
+  # offer to resume or delete saved progress.
+  project_id_typed <- debounce(reactive(trimws(input$project_id %||% "")), 900)
+  project_check_now <- reactiveVal(0)
+  observeEvent(list(project_id_typed(), rv$logged_in, project_check_now()), {
+    pid <- project_id_typed()
+    if (!nzchar(pid) || !progress_enabled()) { rv$project_status <- NULL; return() }
+    st <- project_status(pid)
+    st$project <- safe_project_id(pid)
+    rv$project_status <- st
+    if (!is.null(st$progress) && !identical(rv$resumed_project, st$project) && !identical(rv$progress_prompted, st$project)) {
+      rv$progress_prompted <- st$project
+      show_progress_found_modal(st$progress)
+    }
+  }, ignoreInit = TRUE)
+
+  output$project_status_ui <- renderUI({
+    st <- rv$project_status
+    resumed <- !is.null(rv$resumed_project) && !is.null(st) && identical(rv$resumed_project, st$project)
+    restored <- if (using_restored_files()) {
+      fn <- unlist(rv$restored_file_names %||% list())
+      div(class = "alert alert-info py-2 mb-2",
+          bsicons::bs_icon("paperclip"), " Using the ", length(rv$restored_files), " FAIRe file(s) from the saved progress",
+          if (length(fn)) tagList(": ", tags$b(paste(fn, collapse = ", "))), ". Upload files below only if you want to replace them.")
+    }
+    if (is.null(st)) return(restored)
+    lines <- list(
+      if (resumed) span(bsicons::bs_icon("play-circle-fill", class = "text-primary"), " Resumed from saved progress.")
+      else if (!is.null(st$progress)) span(bsicons::bs_icon("hourglass-split", class = "text-warning"),
+        " This project has saved progress (", st$progress$saved_by, ", ", format_progress_time(st$progress$saved_at), "). ",
+        actionLink("progress_status_open", "Resume or delete it")),
+      if (st$n_drafts > 0) span(bsicons::bs_icon("pencil-square"), " ", st$n_drafts, " finished draft(s) of this project are in the Draft tab."),
+      if (isTRUE(st$published)) span(bsicons::bs_icon("send-check"), " A published archive of this project exists - publishing again will replace it.")
+    )
+    lines <- Filter(Negate(is.null), lines)
+    tagList(restored, if (length(lines)) div(class = "small mb-2", lapply(lines, div)))
+  })
+  observeEvent(input$progress_status_open, { req(rv$project_status$progress); show_progress_found_modal(rv$project_status$progress) })
+
+  # The "In progress" list in the Draft tab.
+  output$progress_list_ui <- renderUI({
+    history_refresh()
+    df <- tryCatch(list_progress(), error = function(e) e)
+    if (inherits(df, "error")) return(div(class = "text-danger", "Couldn't list saved progress: ", conditionMessage(df)))
+    if (nrow(df) == 0) return(div(class = "muted", "Nothing in progress."))
+    btn <- function(action, project, label, icon, cls) tags$button(type = "button", class = paste("btn btn-sm", cls),
+      onclick = sprintf("Shiny.setInputValue('progress_action', {action: '%s', project: %s}, {priority: 'event'})",
+                        action, jsonlite::toJSON(project, auto_unbox = TRUE)),
+      bsicons::bs_icon(icon), " ", label)
+    tags$table(class = "table table-sm align-middle",
+      tags$thead(tags$tr(tags$th("Project"), tags$th("Stopped at"), tags$th("Assays"), tags$th("Saved by"), tags$th("Saved"), tags$th())),
+      tags$tbody(lapply(seq_len(nrow(df)), function(i) {
+        r <- df[i, ]
+        tags$tr(tags$td(tags$b(r$project)), tags$td(paste0("Step ", r$step, " - ", r$step_name)), tags$td(class = "muted", r$assays),
+                tags$td(r$saved_by), tags$td(format_progress_time(r$saved_at)),
+                tags$td(class = "text-end text-nowrap",
+                  if (isTRUE(rv$logged_in)) tagList(btn("resume", r$project, "Resume", "play-fill", "btn-primary me-1"),
+                                                    btn("delete", r$project, "Delete", "trash", "btn-outline-danger"))
+                  else span(class = "muted", bsicons::bs_icon("lock-fill"), " Log in to resume")))
+      })))
+  })
+  observeEvent(input$progress_action, {
+    a <- input$progress_action
+    if (!progress_enabled()) { showModal(login_required_modal("resume or delete saved progress")); return() }
+    if (identical(a$action, "resume")) resume_progress(a$project) else if (identical(a$action, "delete")) confirm_delete_progress(a$project)
   })
 }
 

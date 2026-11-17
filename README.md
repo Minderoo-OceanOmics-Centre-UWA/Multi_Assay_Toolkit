@@ -124,6 +124,8 @@ shiny::runApp()
 
 That's all you need. With no further setup the app runs in **local mode**: there is no login screen, and you can go through all seven steps and download the finished archive. Keep the downloaded zips in a folder on your computer, upload them to an IPT, or share them with your OBIS node.
 
+Local mode never connects to anyone else's storage. Saving drafts, publishing, team accounts and "Save progress" (In progress) only appear once you connect **your own** storage and email account (below).
+
 Prefer not to use the app? The [R scripts](#using-the-r-scripts-instead-of-the-app) produce the same archive.
 
 ### 4. Optional: connect storage and accounts
@@ -145,8 +147,9 @@ Copy `.Renviron.example` to `.Renviron` (next to `app.R`) and fill it in. `.Renv
 | `AWS_ACCESS_KEY_ID` | Yes | Access key for an AWS user that can read and write your bucket |
 | `AWS_SECRET_ACCESS_KEY` | Yes | Its secret key |
 | `AWS_DEFAULT_REGION` | Yes | The bucket's region, e.g. `ap-southeast-2` |
-| `FAIRE2OBIS_S3_BUCKET` | **Yes, for your own install** | Your bucket's name. If unset, the app uses the OceanOmics bucket name, which your credentials cannot access. |
+| `FAIRE2OBIS_S3_BUCKET` | **Yes** | Your own bucket's name. There is no default: if it's unset, storage and accounts stay off and the app runs in local mode. |
 | `FAIRE2OBIS_S3_PREFIX` | No | Parent folder for `Draft/`, `Publish/` and `Report/`. Defaults to `biodiversity-public`. |
+| `FAIRE2OBIS_PROGRESS_DIR` | No | Folder **on the server's disk** for unfinished "In progress" sessions (kept off S3 so unpublished data stays private). Must be writable by the app. Defaults to a per-user folder on the machine running the app. |
 
 To get the keys: in the AWS console create an S3 bucket, create an IAM user with read/write access to that bucket only, and create an access key for that user. If you use the AWS CLI, `aws configure` asks for the same three values; the app reads them from `.Renviron`, not from the CLI's own files.
 
