@@ -1,9 +1,12 @@
-# Every 3 months, refresh the local copies of the Darwin Core / GBIF definitions
-# in reference/ (scripts/update_reference_terms.R). If anything changed, open a
-# pull request describing it, so a person reviews it before it reaches the app.
-# Can also be run by hand: GitHub > Actions > "Check Darwin Core / GBIF references" > Run workflow.
+# Every 3 months, refresh the local copies of the Darwin Core / GBIF / FAIRe
+# definitions in reference/ (scripts/update_reference_terms.R). If anything
+# changed, the new files go to the branch "auto/reference-terms" and an issue
+# is opened describing the changes, with a link to open a pull request - so a
+# person reviews everything before it reaches main (and the live app).
 #
-# Needs: Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+# Opens an issue rather than a pull request because the organisation doesn't
+# allow GitHub Actions to create pull requests.
+# Can also be run by hand: GitHub > Actions > "Check Darwin Core / GBIF references" > Run workflow.
 
 name: Check Darwin Core / GBIF references
 
@@ -14,11 +17,15 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
+  issues: write
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    env:
+      BRANCH: auto/reference-terms
+      ISSUE_TITLE: "Darwin Core / GBIF / FAIRe definitions have changed - please review"
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,12 +39,34 @@ jobs:
       - name: Refresh reference files
         run: Rscript scripts/update_reference_terms.R "$RUNNER_TEMP/reference_summary.md"
 
-      - name: Open a pull request if anything changed
-        uses: peter-evans/create-pull-request@v7
-        with:
-          branch: auto/reference-terms
-          delete-branch: true
-          add-paths: reference/*
-          commit-message: "Update Darwin Core / GBIF reference files"
-          title: "Darwin Core / GBIF definitions have changed - please review"
-          body-path: ${{ runner.temp }}/reference_summary.md
+      - name: Push changes to a branch and open an issue
+        run: |
+          if git diff --quiet -- reference/ && [ -z "$(git ls-files --others --exclude-standard reference/)" ]; then
+            echo "No changes - the reference files are up to date."
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add reference/
+          git commit -m "Update Darwin Core / GBIF / FAIRe reference files"
+          git push --force origin "$BRANCH"
+
+          DEFAULT="${{ github.event.repository.default_branch }}"
+          PR_LINK="${{ github.server_url }}/${{ github.repository }}/compare/${DEFAULT}...${BRANCH}?expand=1"
+          {
+            cat "$RUNNER_TEMP/reference_summary.md"
+            echo
+            echo "---"
+            echo "**To apply:** review the file changes, then [open a pull request](${PR_LINK}) from \`${BRANCH}\` and merge it."
+            echo "After merging, deploy as usual (\`git pull\` on the server). Close this issue when done."
+          } > "$RUNNER_TEMP/issue_body.md"
+
+          # One open issue at a time: add a comment if it's still open from last time.
+          EXISTING=$(gh issue list --state open --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file "$RUNNER_TEMP/issue_body.md"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body-file "$RUNNER_TEMP/issue_body.md"
+          fi
