@@ -200,8 +200,8 @@ build_event_core <- function(input_files,
     log_msg("Dropped empty measurement columns from Event core: ", paste(empty_cols, collapse = ", "))
   }
   if (length(populated_cols) > 0) {
-    log_msg("WARNING: these measurement columns contain data but have no Event-core Darwin Core term - ",
-            "they need an eMoF extension: ", paste(populated_cols, collapse = ", "))
+    log_msg("Measurement columns with data (no Event-core Darwin Core term - the app moves them to the eMoF file, ",
+            "see event_measurements_to_emof() in R/build_emof.R): ", paste(populated_cols, collapse = ", "))
   }
 
   log_msg("Event core built: ", nrow(event_core), " rows, ", ncol(event_core), " columns")

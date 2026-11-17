@@ -2077,11 +2077,19 @@ server <- function(input, output, session) {
           occurrence_tables        = occ$occurrence,
           assay_project_column     = assay_project_column
         )
-        emof <- build_emof(
-          event_ids   = ec$event_core$eventID,
-          vessel_name = rv$answers$vessel_name,
-          vessel_uri  = rv$answers$vessel_code_uri,
-          voyage_id   = rv$answers$voyage_id
+        # Measured values (temperature, salinity, ...) have no Event-core
+        # term, so they go to the eMoF file with the vessel/voyage rows.
+        meas <- event_measurements_to_emof(ec$event_core)
+        ec$event_core <- meas$event_core
+        emof <- combine_emof(
+          build_emof(
+            event_ids   = ec$event_core$eventID,
+            vessel_name = rv$answers$vessel_name,
+            vessel_uri  = rv$answers$vessel_code_uri,
+            voyage_id   = rv$answers$voyage_id
+          ),
+          meas$emof,
+          event_ids = ec$event_core$eventID
         )
         incProgress(0.2)
 
@@ -2148,42 +2156,52 @@ server <- function(input, output, session) {
     m <- tryCatch(check_dwc_mapping(r$event_core, r$occurrence, r$dna_extension, r$emof), error = function(e) NULL)
     if (is.null(m)) return(NULL)
 
-    n_total <- nrow(m)
+    # Only real problems are shown. Columns MAT includes on purpose (the ASV ID,
+    # the eventID links between files, an ampliconSize range) are "expected"
+    # and deliberately not listed - they need no action and only confused people.
     problems <- m[m$status %in% c("not_a_term", "wrong_type"), , drop = FALSE]
-    notes <- m[m$status == "expected", , drop = FALSE]
+    n_mapped <- sum(m$status == "ok")
 
-    badge <- function(status) {
-      switch(status,
-        not_a_term = span(class = "badge bg-warning text-dark", "Not a Darwin Core term"),
-        wrong_type = span(class = "badge bg-danger", "Wrong data type"),
-        expected   = span(class = "badge bg-secondary", "Expected")
-      )
-    }
+    what <- function(status, detail) switch(status,
+      not_a_term = list(
+        badge = span(class = "badge bg-warning text-dark", "Not a recognised term"),
+        means = "The IPT can't match this column to any Darwin Core / GBIF term, so it will be left out when the dataset is published.",
+        todo  = "You can continue - the rest of the archive is fine. To publish this information, check the column name in your FAIRe file (a typo or an unusual name is the usual cause), correct it and upload the file again. If the name is right, tell the MAT team so it can be supported."),
+      wrong_type = list(
+        badge = span(class = "badge bg-danger", "Value in the wrong form"),
+        means = paste0("This term needs a number, but the file has something else. ", detail, "."),
+        todo  = "Correct the value in your FAIRe file (for example write 54, not 54-56 or \"about 54\") and upload the file again. If you continue as it is, the IPT may reject this column.")
+    )
     rows_ui <- function(df) tags$table(class = "table table-sm align-middle",
-      tags$thead(tags$tr(tags$th("Table"), tags$th("Column"), tags$th("Status"), tags$th("What it means"))),
+      tags$thead(tags$tr(tags$th("File"), tags$th("Column"), tags$th("Problem"), tags$th("What it means and what to do"))),
       tags$tbody(lapply(seq_len(nrow(df)), function(i) {
-        tags$tr(tags$td(df$table[i]), tags$td(tags$code(df$column[i])), tags$td(badge(df$status[i])), tags$td(class = "muted", df$detail[i]))
+        w <- what(df$status[i], df$detail[i])
+        tags$tr(tags$td(df$table[i]), tags$td(tags$code(df$column[i])), tags$td(w$badge),
+                tags$td(div(w$means), div(class = "muted small mt-1", tags$b("What to do: "), w$todo)))
       }))
     )
 
     card(
       card_header(bsicons::bs_icon("signpost-split", class = "section-icon"), "Darwin Core mapping check"),
       card_body(
-        p(class = "muted", "This is what the IPT mapping screen will complain about. It compares every column against the official GBIF Darwin Core definitions."),
+        p(class = "muted",
+          "Why you see this: OBIS publishes data through an IPT (Integrated Publishing Toolkit), which only accepts columns named after official ",
+          "Darwin Core / GBIF terms, with values in the right form. MAT checks every column of your archive against those definitions now, ",
+          "so any problem shows up here rather than later in the IPT."),
         if (nrow(problems) == 0) {
-          div(class = "alert alert-success d-flex align-items-center gap-2",
-              bsicons::bs_icon("check-circle-fill"),
-              paste0("All ", n_total - nrow(notes), " columns map to a Darwin Core term with a valid data type."))
+          div(class = "alert alert-success mb-0",
+              div(class = "d-flex align-items-center gap-2", bsicons::bs_icon("check-circle-fill"),
+                  tags$b("Nothing to do. Continue to Step 4.")),
+              div(class = "small mt-1",
+                  paste0("All ", n_mapped, " columns match a Darwin Core / GBIF term, with values in the right form.")))
         } else {
           tagList(
             div(class = "alert alert-warning",
                 bsicons::bs_icon("exclamation-triangle-fill"), " ",
-                paste0(nrow(problems), " column(s) will not map cleanly. Fix these in your FAIRe file or pipeline before uploading to the IPT.")),
+                tags$b(paste0(nrow(problems), " column(s) need a look.")),
+                " Everything else matches. See what to do for each one below - you can still continue to Step 4."),
             rows_ui(problems)
           )
-        },
-        if (nrow(notes) > 0) {
-          tags$details(tags$summary(class = "muted", paste0(nrow(notes), " expected note(s)")), rows_ui(notes))
         }
       )
     )

@@ -60,6 +60,54 @@ build_emof <- function(event_ids, vessel_name, vessel_uri = NA_character_, voyag
   out
 }
 
+# Environmental measurements recorded per sample (FAIRe sampleMetadata: temp,
+# salinity, ...) have no Event-core Darwin Core column, so they're published
+# as eMoF rows instead (one per sample per measurement that has a value).
+# measurementTypeID = the term's link in the FAIRe checklist (a MIxS term);
+# units as FAIRe defines them; NERC P06 unit IDs only where certain.
+EVENT_MEASUREMENTS <- data.frame(
+  column = c("waterTemperature", "salinity", "ph", "dissolvedOxygen", "turbidity", "tidal_stage", "water_current", "samp_weather"),
+  type   = c("Water temperature", "Salinity", "pH", "Dissolved oxygen", "Turbidity", "Tidal stage", "Water current", "Weather on the sampling day"),
+  type_id = paste0("https://w3id.org/mixs/", c("0000113", "0000183", "0001001", "0000119", "0000191", "0000750", "0000203", "0000827")),
+  unit   = c("degrees Celsius", "PSU", NA, NA, "NTU", NA, "m/s", NA),
+  unit_id = c("http://vocab.nerc.ac.uk/collection/P06/current/UPAA/", NA, NA, NA, NA, NA, NA, NA),
+  stringsAsFactors = FALSE
+)
+
+#' Move populated measurement columns out of the Event core into eMoF rows.
+#' @return list(event_core = without those columns, emof = rows or NULL)
+event_measurements_to_emof <- function(event_core) {
+  filled <- function(x) !is.na(x) & nzchar(trimws(as.character(x)))
+  rows <- list()
+  for (i in seq_len(nrow(EVENT_MEASUREMENTS))) {
+    m <- EVENT_MEASUREMENTS[i, ]
+    if (!m$column %in% names(event_core)) next
+    v <- event_core[[m$column]]
+    keep <- filled(v)
+    if (!any(keep)) next
+    unit <- rep(m$unit, length(v))
+    if (m$column == "dissolvedOxygen" && "dissolvedOxygenUnit" %in% names(event_core)) unit <- as.character(event_core$dissolvedOxygenUnit)
+    rows[[length(rows) + 1]] <- data.frame(
+      eventID = event_core$eventID[keep], occurrenceID = NA_character_,
+      measurementType = m$type, measurementTypeID = m$type_id,
+      measurementValue = as.character(v[keep]), measurementValueID = NA_character_,
+      measurementUnit = unit[keep], measurementUnitID = m$unit_id, stringsAsFactors = FALSE)
+  }
+  drop <- intersect(c(EVENT_MEASUREMENTS$column, "dissolvedOxygenUnit"), names(event_core))
+  event_core <- event_core[, setdiff(names(event_core), drop), drop = FALSE]
+  list(event_core = event_core, emof = if (length(rows)) do.call(rbind, rows) else NULL)
+}
+
+#' Combine eMoF tables (any may be NULL), keeping each sample's rows together.
+combine_emof <- function(..., event_ids) {
+  parts <- Filter(Negate(is.null), list(...))
+  if (length(parts) == 0) return(NULL)
+  out <- dplyr::bind_rows(parts)
+  out <- out[order(match(out$eventID, event_ids)), , drop = FALSE]
+  rownames(out) <- NULL
+  out
+}
+
 # A methods sentence for eml.xml, so the vessel/voyage also shows in the
 # dataset description. NULL when neither is given.
 platform_method_note <- function(vessel_name, voyage_id = NA_character_) {
