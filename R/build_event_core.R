@@ -76,6 +76,27 @@ build_event_core <- function(input_files,
             " samples from all files; affected samples say which assays weren't run in eventRemarks.")
   }
 
+  # FAIRe projects don't all have every optional column (e.g. OcOm_2101 has no
+  # site_comments). A missing optional column is treated as empty; a missing
+  # required one stops the build with a clear message.
+  required_cols <- c("samp_name", "samp_category", "eventDate", "decimalLatitude", "decimalLongitude")
+  missing_required <- setdiff(required_cols, names(base_table))
+  if (length(missing_required) > 0) {
+    stop("sampleMetadata is missing required column(s): ", paste(missing_required, collapse = ", "),
+         ". Add them to the FAIRe file and upload it again.")
+  }
+  optional_cols <- c("verbatimEventDate", "verbatimEventTime", "verbatimLatitude", "verbatimLongitude",
+                     "verbatimCoordinateSystem", "verbatimSRS", "site_id", "geo_loc_name",
+                     "minimumDepthInMeters", "maximumDepthInMeters", "samp_collect_method", "samp_collect_device",
+                     "samp_size", "samp_size_unit", "habitat_natural_artificial_0_1", "temp", "salinity", "ph",
+                     "diss_oxygen", "diss_oxygen_unit", "turbidity", "tidal_stage", "water_current",
+                     "samp_weather", "site_comments")
+  missing_optional <- setdiff(optional_cols, names(base_table))
+  for (col in missing_optional) base_table[[col]] <- NA_character_
+  if (length(missing_optional) > 0) {
+    log_msg("Optional sampleMetadata column(s) not in this FAIRe file, left empty: ", paste(missing_optional, collapse = ", "))
+  }
+
   all_samples <- base_table %>% dplyr::mutate(eventID = build_event_id(samp_name))
 
   real_samples <- all_samples %>% dplyr::filter(samp_category == sample_category_keep)
