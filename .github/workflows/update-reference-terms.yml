@@ -42,6 +42,7 @@ jobs:
       - name: Push changes to a branch and open an issue
         run: |
           if git diff --quiet -- reference/ && [ -z "$(git ls-files --others --exclude-standard reference/)" ]; then
+            echo "CHANGED=false" >> "$GITHUB_ENV"
             echo "No changes - the reference files are up to date."
             exit 0
           fi
@@ -67,6 +68,31 @@ jobs:
           EXISTING=$(gh issue list --state open --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number')
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body-file "$RUNNER_TEMP/issue_body.md"
+            ISSUE_URL="${{ github.server_url }}/${{ github.repository }}/issues/${EXISTING}"
           else
-            gh issue create --title "$ISSUE_TITLE" --body-file "$RUNNER_TEMP/issue_body.md"
+            ISSUE_URL=$(gh issue create --title "$ISSUE_TITLE" --body-file "$RUNNER_TEMP/issue_body.md")
           fi
+          echo "ISSUE_URL=$ISSUE_URL" >> "$GITHUB_ENV"
+          echo "PR_LINK=$PR_LINK" >> "$GITHUB_ENV"
+          echo "CHANGED=true" >> "$GITHUB_ENV"
+
+      # An issue opened by a workflow can't start another workflow, so this
+      # job sends its own email (same template as notify-pull-requests.yml).
+      - name: Email Anushka (cc Emma)
+        if: env.CHANGED == 'true'
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
+          NOTIFY_CC: ${{ secrets.NOTIFY_CC }}
+          MAIL_SUBJECT: "MAT: Darwin Core / GBIF / FAIRe definitions have changed - please review"
+          MAIL_HEADLINE: "Quarterly reference check found changes"
+          MAIL_INTRO: "The quarterly check of the Darwin Core, GBIF and FAIRe definitions found changes. The updated reference files are on the branch `auto/reference-terms`. Please review them and open a pull request if they look right - nothing changes on the live app until it is merged and deployed."
+        run: |
+          export MAIL_BODY_FILE="$RUNNER_TEMP/reference_summary.md"
+          export MAIL_FACTS="$(printf 'Issue: [%s](%s)\nOpen the pull request: [compare and merge](%s)' "$ISSUE_URL" "$ISSUE_URL" "$PR_LINK")"
+          export MAIL_LINK_URL="$ISSUE_URL"
+          export MAIL_LINK_LABEL="Open the issue on GitHub"
+          python3 .github/scripts/send_notification.py
