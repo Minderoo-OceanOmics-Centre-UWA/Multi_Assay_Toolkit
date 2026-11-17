@@ -6,9 +6,10 @@
 # data type (e.g. a range like "178-228" in an integer field).
 #
 # The term lists in reference/ are copies of the official GBIF definitions
-# (Event and Occurrence core 2025-07-10, DNA Derived Data extension
-# 2024-07-11 from rs.gbif.org) so this works offline on the deployed app.
-# Refresh them if GBIF publishes newer versions.
+# from rs.gbif.org (versions in reference/reference_sources.csv), so this
+# works offline on the deployed app. They are refreshed by
+# scripts/update_reference_terms.R, which a GitHub Action runs every 3 months
+# and turns into a pull request for review.
 
 # Columns that aren't a term of the table's definition but are intentional.
 DWC_EXPECTED_NON_TERMS <- list(
