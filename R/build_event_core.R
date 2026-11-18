@@ -113,14 +113,16 @@ build_event_core <- function(input_files,
       # verbatimEventTime isn't a Darwin Core term, so it's merged into
       # verbatimEventDate. The FAIRe date can arrive as an Excel serial
       # number (e.g. "45450"), which is unreadable - convert it first.
-      verbatimEventDate = trimws(paste(
-        dplyr::if_else(
+      # A blank date AND time stays NA - paste() would otherwise publish the
+      # text "NA" (it did for OcOm_2101).
+      verbatimEventDate = dplyr::na_if(trimws(paste(
+        dplyr::coalesce(dplyr::if_else(
           grepl("^[0-9]+(\\.[0-9]+)?$", verbatimEventDate),
           format(as.Date(suppressWarnings(as.numeric(verbatimEventDate)), origin = "1899-12-30"), "%Y-%m-%d"),
           as.character(verbatimEventDate)
-        ),
+        ), ""),
         dplyr::coalesce(as.character(verbatimEventTime), "")
-      )),
+      )), ""),
       decimalLatitude = as.numeric(decimalLatitude),
       decimalLongitude = as.numeric(decimalLongitude),
       verbatimLatitude,

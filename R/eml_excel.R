@@ -126,8 +126,23 @@ decode_xml_entities <- function(x) {
   x <- gsub("&gt;", ">", x, fixed = TRUE)
   x <- gsub("&quot;", '"', x, fixed = TRUE)
   x <- gsub("&apos;", "'", x, fixed = TRUE)
-  x <- gsub("&#39;", "'", x, fixed = TRUE)
-  gsub("&amp;", "&", x, fixed = TRUE)
+  x <- gsub("&amp;", "&", x, fixed = TRUE)
+  # Numeric codes too ("&#8217;" = curly apostrophe, "&#x2019;"), often pasted
+  # in from web pages. Before this, OcOm_2101's abstract was published as
+  # "Australia&amp;#8217;s".
+  decode_num <- function(s, pattern, base) {
+    m <- gregexpr(pattern, s, perl = TRUE)
+    regmatches(s, m) <- lapply(regmatches(s, m), function(codes) {
+      if (!length(codes)) return(codes)
+      n <- strtoi(gsub("[^0-9A-Fa-f]", "", sub("^&#[xX]?", "", codes)), base)
+      ifelse(is.na(n) | n <= 0, codes, intToUtf8(n, multiple = TRUE))
+    })
+    s
+  }
+  ok <- !is.na(x)
+  x[ok] <- decode_num(x[ok], "&#[0-9]+;", 10L)
+  x[ok] <- decode_num(x[ok], "&#[xX][0-9A-Fa-f]+;", 16L)
+  x
 }
 
 read_person_rows_sheet <- function(path, sheet_name, columns, column_labels) {

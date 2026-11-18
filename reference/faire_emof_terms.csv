@@ -10,3 +10,4 @@
 "nucl_acid_ext_sep","DNA extraction separation method","","",""
 "nucl_acid_ext_kit","DNA extraction kit","","",""
 "extraction_method","DNA extraction method","","",""
+"tot_depth_water_col","Total water column depth","m","http://vocab.nerc.ac.uk/collection/P06/current/ULAA/",""
