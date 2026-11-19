@@ -12,7 +12,7 @@ obis_node_email <- function() trimws(Sys.getenv("OBIS_NODE_EMAIL"))
 # Who the email says the archive comes from. MAT_ORG_NAME lets a fork use its own name.
 mat_org_name <- function() {
   v <- trimws(Sys.getenv("MAT_ORG_NAME"))
-  if (nzchar(v)) v else "OceanOmics Centre"
+  if (nzchar(v)) v else "Minderoo OceanOmics Centre at UWA"
 }
 
 # "a@x.org, b@y.org" -> c("a@x.org", "b@y.org")
@@ -61,9 +61,9 @@ obis_notify_email <- function(project, archive_url, file_name, size = "", last_m
     '<div style="color:#ffffff;font-size:18px;font-weight:600;">Multi-Assay Toolkit (MAT)</div>',
     '<div style="color:#62d5ff;font-size:13px;margin-top:2px;">eDNA dataset ready for OBIS</div></td></tr>',
     '<tr><td style="padding:24px;color:#0a1b2e;font-size:14px;line-height:1.55;">',
-    '<p style="margin:0 0 12px;">Hi OBIS node team,</p>',
+    '<p style="margin:0 0 12px;">Hi OBIS-AU node team,</p>',
     '<p style="margin:0 0 12px;">The ', esc(org), ' has recently generated a Darwin Core Archive for its new project, <strong>',
-    esc(if (nzchar(title)) title else project), '</strong>, and it is ready to be published to OBIS. ',
+    esc(if (nzchar(title)) title else project), '</strong>, and it is ready to be published to OBIS and GBIF. ',
     'We have included the S3 link below so you can harvest it directly.</p>',
     '<p style="margin:0 0 12px;color:#55607a;font-size:13px;">The archive holds one Event core (one row per sample), ',
     'an Occurrence and a DNA Derived Data extension for each assay, and eml.xml metadata. It has passed MAT\'s QC checks.</p>',
@@ -72,7 +72,7 @@ obis_notify_email <- function(project, archive_url, file_name, size = "", last_m
     note_html,
     '<p style="margin:20px 0 0;">If anything needs changing before publication, please reply to this email',
     if (nzchar(sender_email)) paste0(' or contact ', link(paste0("mailto:", sender_email), sender_email)) else "",
-    '.</p><p style="margin:12px 0 0;">Many thanks,<br>', if (nzchar(sender_name)) paste0(esc(sender_name), '<br>') else "", esc(org), '</p>',
+    '.</p><p style="margin:12px 0 0;">Kind Regards,<br>', if (nzchar(sender_name)) paste0(esc(sender_name), '<br>') else "", 'The ', esc(org), '</p>',
     '</td></tr>',
     '<tr><td style="background:#eef3fb;padding:12px 24px;color:#55607a;font-size:12px;">Sent from the Multi-Assay Toolkit (MAT), which converts FAIRe eDNA data into Darwin Core Archives for OBIS.</td></tr>',
     '</table></td></tr></table></body></html>'

@@ -4083,10 +4083,11 @@ server <- function(input, output, session) {
       size = "l", easyClose = FALSE,
       p(class = "muted", "Emails the OBIS node that ", tags$b(row$path), " is ready, with its S3 link so they can harvest it. ",
         "Replies come back to you (", rv$logged_in_email, ")."),
-      layout_columns(col_widths = c(6, 6),
-        textInput("notify_to", "To (OBIS node email)", value = obis_node_email(), placeholder = "node@example.org", width = "100%"),
-        textInput("notify_sender_name", "Your name", width = "100%")),
-      textInput("notify_title", optional_label("Dataset title", "Shown in the subject line and the email."), width = "100%"),
+      textInput("notify_to", "To (OBIS node email)", value = obis_node_email(), placeholder = "node@example.org", width = "100%"),
+      layout_columns(col_widths = c(4, 8),
+        checkboxInput("notify_cc_me", paste0("CC me (", rv$logged_in_email, ")"), value = TRUE),
+        textInput("notify_cc_others", optional_label("Also CC", "Separate several addresses with commas."),
+                  placeholder = "colleague@uwa.edu.au, manager@uwa.edu.au", width = "100%")),
       textAreaInput("notify_note", optional_label("Message", "A personal note added to the email, e.g. what changed since the last version."),
                     rows = 3, width = "100%"),
       tags$div(class = "small fw-semibold mb-1", "Preview"),
@@ -4101,61 +4102,36 @@ server <- function(input, output, session) {
     obis_notify_email(
       project = row$project, archive_url = s3_public_url(row$s3_key), file_name = row$path, size = row$size_mb,
       last_modified = sub(" UTC$", "", fmt_s3_time(row$last_modified)),
-      report_url = notify_report_url(), title = input$notify_title, sender_name = input$notify_sender_name,
-      sender_email = rv$logged_in_email, note = input$notify_note)
+      report_url = notify_report_url(), sender_email = rv$logged_in_email, note = input$notify_note)
   })
   output$notify_preview <- renderUI({
     em <- notify_email()
     tagList(div(class = "small mb-1", strong("Subject: "), em$subject),
             tags$iframe(srcdoc = em$html, style = "width:100%;height:420px;border:1px solid #dde3ee;border-radius:4px;background:#fff;"))
   })
-  # "Send email" first asks who to copy in (a second popup), then sends.
-  # The email is frozen here, because the first popup's inputs go away.
-  notify_pending <- reactiveVal(NULL)
+  # One popup: To + CC (+ optional message), then send.
   observeEvent(input$notify_send, {
     req(rv$logged_in, can_publish(rv$logged_in_email), notify_target())
     to <- split_emails(input$notify_to)
-    bad <- to[!vapply(to, email_looks_valid, logical(1))]
+    others <- split_emails(input$notify_cc_others)
+    bad <- c(to, others)[!vapply(c(to, others), email_looks_valid, logical(1))]
     if (length(to) == 0 || length(bad) > 0) {
       showNotification(if (length(to) == 0) "Enter the OBIS node's email address." else paste0("Not a valid email: ", paste(bad, collapse = ", ")),
                        type = "error")
       return()
     }
-    notify_pending(list(to = to, email = notify_email()))
-    showModal(modalDialog(
-      title = tagList(bsicons::bs_icon("people"), " Copy anyone in on this request?"),
-      easyClose = FALSE,
-      p("The email goes to ", tags$b(paste(to, collapse = ", ")), ". Do you want to CC it to yourself or anyone else?"),
-      checkboxInput("notify_cc_me", paste0("CC me (", rv$logged_in_email, ")"), value = TRUE),
-      textInput("notify_cc_others", optional_label("Also CC", "Separate several addresses with commas."),
-                placeholder = "colleague@uwa.edu.au, manager@uwa.edu.au", width = "100%"),
-      footer = tagList(modalButton("Cancel"),
-                       actionButton("notify_confirm_send", tagList(bsicons::bs_icon("send"), " Send"), class = "btn-primary"))
-    ))
-  })
-  observeEvent(input$notify_confirm_send, {
-    req(rv$logged_in, can_publish(rv$logged_in_email))
-    pend <- notify_pending()
-    req(pend)
-    others <- split_emails(input$notify_cc_others)
-    bad <- others[!vapply(others, email_looks_valid, logical(1))]
-    if (length(bad) > 0) {
-      showNotification(paste0("Not a valid email: ", paste(bad, collapse = ", ")), type = "error")
-      return()
-    }
     cc <- unique(tolower(c(if (isTRUE(input$notify_cc_me)) rv$logged_in_email, others)))
-    cc <- setdiff(cc, tolower(pend$to))
-    em <- pend$email
+    cc <- setdiff(cc, tolower(to))
+    em <- notify_email()
     sent <- withProgress(message = "Sending email...", value = 0.5, tryCatch(
-      send_obis_notify_email(pend$to, em$subject, em$html, reply_to = rv$logged_in_email, cc = cc),
+      send_obis_notify_email(to, em$subject, em$html, reply_to = rv$logged_in_email, cc = cc),
       error = function(e) e))
     if (inherits(sent, "error")) {
       showNotification(paste0("Couldn't send the email: ", conditionMessage(sent)), type = "error", duration = 10)
       return()
     }
-    notify_pending(NULL)
     removeModal()
-    showNotification(paste0("Email sent to ", paste(pend$to, collapse = ", "),
+    showNotification(paste0("Email sent to ", paste(to, collapse = ", "),
                             if (length(cc) > 0) paste0(" (CC: ", paste(cc, collapse = ", "), ")"), "."),
                      type = "message", duration = 8)
   })
