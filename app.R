@@ -538,6 +538,9 @@ app_css <- "
   .pub-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .pub-actions .btn { white-space: nowrap; }
   .pub-empty { text-align: center; padding: 36px 16px; color: #55607a; }
+  .pub-multi { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 14px;
+               background: #eef3fb; border: 1px solid #e5ecf7; border-radius: 10px; }
+  .pub-item .pub-pick { flex: none; width: 1.2em; height: 1.2em; cursor: pointer; }
   .pub-empty .bi { font-size: 2rem; color: #98a2b3; display: block; margin-bottom: 8px; }
 "
 
@@ -1014,6 +1017,28 @@ server <- function(input, output, session) {
     bslib::nav_select("main_tab", tab, session = session)
     session$sendCustomMessage("scroll_top", list())
   }
+  # Page links: each top tab has its own address (".../#publish"), so a
+  # refresh, a bookmark or a shared link opens that tab, and the browser's
+  # Back/Forward buttons move between tabs. The hash is used (not a real
+  # path) because Shiny Server serves the whole app from one URL. A refresh
+  # still starts a new session, so on Generate the wizard is back at Step 1.
+  TAB_ROUTES <- c(Home = "home", Generate = "generate", Draft = "draft", Publish = "publish",
+                  Search = "search", About = "about", "User Management" = "users")
+  # Also re-runs when sign-in finishes, so "#users" works for an admin whose
+  # stay-signed-in token is checked a moment after the page loads.
+  observe({
+    slug <- tolower(sub("^#/?", "", session$clientData$url_hash %||% ""))
+    tab <- names(TAB_ROUTES)[match(slug, TAB_ROUTES)]
+    if (length(tab) != 1 || is.na(tab)) return()
+    if (tab == "User Management" && !(isTRUE(rv$logged_in) && is_admin(rv$logged_in_email))) return()
+    if (!identical(tab, isolate(input$main_tab))) bslib::nav_select("main_tab", tab, session = session)
+  })
+  observeEvent(input$main_tab, {
+    slug <- unname(TAB_ROUTES[input$main_tab])
+    if (length(slug) == 1 && !is.na(slug) && !identical(session$clientData$url_hash, paste0("#", slug)))
+      updateQueryString(paste0("#", slug), mode = "push", session = session)
+  }, ignoreInit = TRUE)
+
   observeEvent(input$home_go_generate,  go_to_tab("Generate"))
   observeEvent(input$about_go_generate, go_to_tab("Generate"))
   observeEvent(input$home_go_about,     go_to_tab("About"))
@@ -4019,7 +4044,20 @@ server <- function(input, output, session) {
       tags$button(type = "button", class = paste("btn btn-sm", cls), onclick = pub_action_js("locked", ""),
                   title = "Log in to use this", bsicons::bs_icon("lock-fill"), " ", label)
     }
-    div(class = "pub-list", lapply(seq_len(nrow(df)), function(i) {
+    # Several archives -> publishers can tick them and send ONE email about all.
+    multi <- publisher && nrow(df) >= 2
+    count_js <- "var n=document.querySelectorAll('.pub-pick:checked').length,b=document.getElementById('pub_multi_btn');if(b){b.querySelector('.pub-n').textContent=n;b.disabled=n===0;}"
+    toolbar <- if (multi) div(class = "pub-multi",
+      tags$label(class = "form-check-label d-flex align-items-center gap-2 mb-0",
+        tags$input(type = "checkbox", class = "form-check-input mt-0",
+                   onchange = paste0("document.querySelectorAll('.pub-pick').forEach(function(c){c.checked=this.checked;},this);", count_js)),
+        "Select all"),
+      span(class = "muted small", "Tick several archives to tell the OBIS node about them in one email."),
+      tags$button(id = "pub_multi_btn", type = "button", class = "btn btn-sm btn-primary ms-auto", disabled = NA,
+                  onclick = paste0("var k=[].map.call(document.querySelectorAll('.pub-pick:checked'),function(c){return c.value;});",
+                                   "Shiny.setInputValue('publish_multi_notify',{keys:k,t:Date.now()},{priority:'event'})"),
+                  bsicons::bs_icon("envelope-paper"), " Notify OBIS node about selected (", span(class = "pub-n", "0"), ")"))
+    tagList(toolbar, div(class = "pub-list", lapply(seq_len(nrow(df)), function(i) {
       row <- df[i, ]
       url <- s3_public_url(row$s3_key)
       copy_js <- paste0(
@@ -4029,6 +4067,8 @@ server <- function(input, output, session) {
         "else{var t=document.createElement('textarea');t.value=u;document.body.appendChild(t);t.select();",
         "document.execCommand('copy');document.body.removeChild(t);ok();}")
       div(class = "pub-item",
+        if (multi) tags$input(type = "checkbox", class = "form-check-input pub-pick mt-0", value = row$s3_key,
+                              title = paste("Select", row$project, "for a combined email"), onchange = count_js),
         div(class = "pub-icon", bsicons::bs_icon("file-earmark-zip")),
         div(class = "pub-main",
           div(class = "pub-title", row$project, span(class = "pub-badge", "Ready for OBIS")),
@@ -4052,7 +4092,19 @@ server <- function(input, output, session) {
           else lock("Notify OBIS node", "envelope-paper", "btn-primary")
         )
       )
-    }))
+    })))
+  })
+
+  observeEvent(input$publish_multi_notify, {
+    keys <- unlist(input$publish_multi_notify$keys)
+    if (length(keys) == 0) return(showNotification("Tick at least one archive first.", type = "warning"))
+    df <- published_df()
+    rows <- if (is.null(df)) NULL else df[df$s3_key %in% keys, , drop = FALSE]
+    if (is.null(rows) || nrow(rows) < length(unique(keys))) {
+      showNotification("Some of those archives are no longer in the Publish folder - press Refresh.", type = "warning")
+      return()
+    }
+    open_notify(rows)
   })
 
   observeEvent(input$publish_action, {
@@ -4067,22 +4119,28 @@ server <- function(input, output, session) {
     if (identical(a$action, "notify")) open_notify(row)
   })
 
-  notify_target <- reactiveVal(NULL)  # the row (archive) the open popup is about
+  notify_target <- reactiveVal(NULL)  # the row(s) (archives) the open popup is about - one email for all
   notify_report_url <- reactiveVal(NULL)
-  open_notify <- function(row) {
+  open_notify <- function(rows) {
     req(rv$logged_in, can_publish(rv$logged_in_email))
     if (!smtp_configured()) {
       showNotification("Email isn't set up on this server (SMTP_USER / SMTP_PASSWORD in .Renviron).", type = "error", duration = 8)
       return()
     }
-    notify_target(row)
-    rep_key <- report_key_for_zip(row$s3_key)
-    notify_report_url(if (isTRUE(tryCatch(.s3_exists(rep_key), error = function(e) FALSE))) s3_public_url(rep_key) else NULL)
+    notify_target(rows)
+    notify_report_url(vapply(rows$s3_key, function(k) {
+      rep_key <- report_key_for_zip(k)
+      if (isTRUE(tryCatch(.s3_exists(rep_key), error = function(e) FALSE))) s3_public_url(rep_key) else NA_character_
+    }, character(1), USE.NAMES = FALSE))
     showModal(modalDialog(
       title = tagList(bsicons::bs_icon("envelope-paper"), " Notify the OBIS node"),
       size = "l", easyClose = FALSE,
-      p(class = "muted", "Emails the OBIS node that ", tags$b(row$path), " is ready, with its S3 link so they can harvest it. ",
-        "Replies come back to you (", rv$logged_in_email, ")."),
+      if (nrow(rows) == 1)
+        p(class = "muted", "Emails the OBIS node that ", tags$b(rows$path), " is ready, with its S3 link so they can harvest it. ",
+          "Replies come back to you (", rv$logged_in_email, ").")
+      else
+        p(class = "muted", "Sends ONE email to the OBIS node about these ", nrow(rows), " archives, with each one's S3 link: ",
+          tags$b(paste(rows$project, collapse = ", ")), ". Replies come back to you (", rv$logged_in_email, ")."),
       textInput("notify_to", "To (OBIS node email)", value = obis_node_email(), placeholder = "node@example.org", width = "100%"),
       layout_columns(col_widths = c(4, 8),
         checkboxInput("notify_cc_me", paste0("CC me (", rv$logged_in_email, ")"), value = TRUE),
@@ -4097,11 +4155,12 @@ server <- function(input, output, session) {
     ))
   }
   notify_email <- reactive({
-    row <- notify_target()
-    req(row)
+    rows <- notify_target()
+    req(rows, nrow(rows) > 0)
     obis_notify_email(
-      project = row$project, archive_url = s3_public_url(row$s3_key), file_name = row$path, size = row$size_mb,
-      last_modified = sub(" UTC$", "", fmt_s3_time(row$last_modified)),
+      project = rows$project, archive_url = vapply(rows$s3_key, s3_public_url, character(1), USE.NAMES = FALSE),
+      file_name = rows$path, size = rows$size_mb,
+      last_modified = vapply(rows$last_modified, function(x) sub(" UTC$", "", fmt_s3_time(x)), character(1), USE.NAMES = FALSE),
       report_url = notify_report_url(), sender_email = rv$logged_in_email, note = input$notify_note)
   })
   output$notify_preview <- renderUI({
